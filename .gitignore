@@ -1,2 +1,7 @@
 benchmark/
 inputdata/
+*.o
+*.target
+Makefile
+*.prj
+modules/
