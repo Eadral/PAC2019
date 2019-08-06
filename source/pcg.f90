@@ -48,6 +48,10 @@
    call readnc(NcID, 'X', X0)
    call readnc(NcID, 'B', B)
    call close_nc(NcID)
+   
+   print *, X
+   stop
+   
    if (my_task .eq. master_task) then
       write(6,*) 'sum(A0) = ', sum(A0)
       write(6,*) 'sum(AN) = ', sum(AN)
@@ -58,7 +62,7 @@
       write(6,*) 'sum(B) = ', sum(B)
    endif
    write(6,*) 'my_task= ',my_task,'nblocks_tropic= ',nblocks_tropic
-
+   
    ! Added by Junmin Sep 20,2015
    ! For CA-PCG algorithm
    call update_ghost_cells(AN, bndy_tropic, field_loc_center, &
