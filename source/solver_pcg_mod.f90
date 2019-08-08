@@ -221,50 +221,128 @@ contains
    type (block) :: &
       this_block ! block information for current block
 
-   ! -------------------------------------- MINE -----------------------------------------------
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      Xi, Ri, Ri1, Vsk1, Rsk1, &
-      T 
+   ! --------------------------------------------- MINE ---------------------------------------------------------
+   ! real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+   !    Xi, Ri, Ri1, Vsk1, Rsk1, &
+   !    T 
 
-   integer (int_kind), parameter :: step = 3
-   integer (int_kind) :: k
+   ! integer (int_kind), parameter :: step = 4
+   ! integer (int_kind) :: k
 
-   ! init
+   ! ! init
 
-   !LINE: 1
-   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-   do iblock=1,nblocks_tropic
-      this_block = get_block(blocks_tropic(iblock),iblock)
+   ! !LINE: 1
+   !    Xi = c0
+   !    Ri = c0
+   !    call btrop_operator(T,X,this_block,iblock)
+   !    Ri1= B - T
+   ! !ENDLINE: 1
 
-      Xi = c0
-      Ri = c0
-      call btrop_operator(T,X,this_block,iblock)
-      Ri1(:,:,iblock) = B(:,:,iblock) - T(:,:,iblock)
-   end do ! block loop
-   !$OMP END PARALLEL DO
-   call update_ghost_cells(Ri1, bndy_tropic, field_loc_center, field_type_scalar)
-   !ENDLINE: 1
+   ! !LINE: 2
+   ! capcg_loop: do k = 0, solv_max_iters
+   ! !ENDLINE: 2
 
-   !LINE: 2
-   capcg_loop: do k = 0, solv_max_iters
-   !ENDLINE: 2
-
-   !LINE: 3
-   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-   do iblock=1,nblocks_tropic
-      this_block = get_block(blocks_tropic(iblock),iblock)
-
-      !
-      Vsk1 = Rsk1
-	   !
-   end do ! block loop
-   !$OMP END PARALLEL DO
-   !ENDLINE: 3
+   !    !LINE: 3
+   !       Vsk1 = Rsk1
+   !    !ENDLINE: 3
 
 
-   enddo capcg_loop
+   ! enddo capcg_loop
 
-! -------------------------------------- MINE -----------------------------------------------
+! ------------------------------------------------ MINE END---------------------------------------------------------
+
+
+! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
+
+
+   call simple_btrop_operator(S,X)
+   R = B - S
+   S = c0
+
+   eta0 =c1
+   solv_sum_iters = solv_max_iters
+
+   iter_loop_m: do m = 1, solv_max_iters
+
+
+      where (A0 /= c0)
+         WORK1 = R/A0
+      elsewhere
+         WORK1 = c0
+      endwhere
+ 
+                                 ! M^{-1} r_i
+      WORK0 = R*WORK1
+         ! r_i^T M^{-1} r_i
+
+      !*** (r,(PC)r)
+      ! r_i^T M^{-1} r_i
+      eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
+
+      S = WORK1 + S*(eta1/eta0)
+      call simple_btrop_operator(Q,S)
+                             ! AS
+      WORK0 = Q*S
+      ! SAS
+
+      eta0 = eta1
+      ! r_i^T M^{-1} r_i
+      ! r_i^T M^{-1} r_i / SAS
+      eta1 = eta0/global_sum(WORK0, distrb_tropic, &
+                             field_loc_center, RCALCT_B)
+      ! alpha_i
+    
+                                             
+      X = X + eta1*S
+      R = R - eta1*Q
+
+      if (mod(m,solv_ncheck) == 0) then
+
+         call simple_btrop_operator(R,X)
+         R = B - R
+         ! b - Ax
+         WORK0 = R*R
+         ! R^2
+      endif
+
+
+      if (mod(m,solv_ncheck) == 0) then
+
+         call update_ghost_cells(R, bndy_tropic, field_loc_center,&
+                                                 field_type_scalar)
+
+         rr = global_sum(WORK0, distrb_tropic, &
+                         field_loc_center, RCALCT_B) ! (r,r)
+
+            ! ljm tuning
+!            if (my_task == master_task) &
+!               write(6,*)'  iter#= ',m,' rr= ',rr
+         if (rr < solv_convrg) then
+            ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
+            solv_sum_iters = m
+            exit iter_loop_m
+         endif
+
+      endif
+
+   enddo iter_loop_m
+
+   rms_residual = sqrt(rr*resid_norm)
+
+   
+   if (solv_sum_iters == solv_max_iters) then
+      if (solv_convrg /= c0) then
+         write(noconvrg,'(a45,i11)') &
+           'Barotropic solver not converged at time step ', nsteps_total
+         call exit_POP(sigAbort,noconvrg)
+      endif
+   endif
+
+return 
+! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
+
 
 !-----------------------------------------------------------------------
 !
@@ -517,6 +595,35 @@ contains
 !BOP
 ! !IROUTINE: btrop_operator
 ! !INTERFACE:
+
+subroutine simple_btrop_operator(AX, X)
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      X ! array to be operated on
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(out) :: &
+      AX ! nine point operator result (Ax)
+
+   integer (int_kind) :: &
+      iblock ! local block counter
+
+   type (block) :: &
+      this_block ! block information for current block
+
+   !LINE: 1
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+   
+        call btrop_operator(AX, X,this_block,iblock)
+      end do ! block loop
+   !$OMP END PARALLEL DO
+   call update_ghost_cells(AX, bndy_tropic, field_loc_center, field_type_scalar)
+   !ENDLINE: 1
+
+
+end subroutine simple_btrop_operator
 
  subroutine btrop_operator(AX,X,this_block,bid)
 
