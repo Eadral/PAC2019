@@ -49,8 +49,6 @@
    call readnc(NcID, 'B', B)
    call close_nc(NcID)
    
-   print *, X
-   stop
    
    if (my_task .eq. master_task) then
       write(6,*) 'sum(A0) = ', sum(A0)

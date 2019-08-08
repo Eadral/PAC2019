@@ -221,6 +221,51 @@ contains
    type (block) :: &
       this_block ! block information for current block
 
+   ! -------------------------------------- MINE -----------------------------------------------
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      Xi, Ri, Ri1, Vsk1, Rsk1, &
+      T 
+
+   integer (int_kind), parameter :: step = 3
+   integer (int_kind) :: k
+
+   ! init
+
+   !LINE: 1
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+
+      Xi = c0
+      Ri = c0
+      call btrop_operator(T,X,this_block,iblock)
+      Ri1(:,:,iblock) = B(:,:,iblock) - T(:,:,iblock)
+   end do ! block loop
+   !$OMP END PARALLEL DO
+   call update_ghost_cells(Ri1, bndy_tropic, field_loc_center, field_type_scalar)
+   !ENDLINE: 1
+
+   !LINE: 2
+   capcg_loop: do k = 0, solv_max_iters
+   !ENDLINE: 2
+
+   !LINE: 3
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+
+      !
+      Vsk1 = Rsk1
+	   !
+   end do ! block loop
+   !$OMP END PARALLEL DO
+   !ENDLINE: 3
+
+
+   enddo capcg_loop
+
+! -------------------------------------- MINE -----------------------------------------------
+
 !-----------------------------------------------------------------------
 !
 ! compute initial residual and initialize S
@@ -279,8 +324,9 @@ contains
                WORK1(:,:,iblock) = c0
             endwhere
          endif
-
+                                          ! M^{-1} r_i
          WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
+         ! r_i^T M^{-1} r_i
       end do ! block loop
 
       !$OMP END PARALLEL DO
@@ -295,14 +341,16 @@ contains
          call update_ghost_cells(WORK1,bndy_tropic, field_loc_center,&
                                                     field_type_scalar)
       !*** (r,(PC)r)
+      ! r_i^T M^{-1} r_i
       eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
 
       !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
-
+                        ! M^{-1} r_i + d (beta_{i+1} / beta_i)
          S(:,:,iblock) = WORK1(:,:,iblock) + S(:,:,iblock)*(eta1/eta0)
+        
 
 !-----------------------------------------------------------------------
 !
@@ -311,8 +359,9 @@ contains
 !-----------------------------------------------------------------------
 
          call btrop_operator(Q,S,this_block,iblock)
+                             ! AS
          WORK0(:,:,iblock) = Q(:,:,iblock)*S(:,:,iblock)
-
+         ! SAS
       end do ! block loop
 
       !$OMP END PARALLEL DO
@@ -327,14 +376,16 @@ contains
                                               field_type_scalar)
 
       eta0 = eta1
+      ! r_i^T M^{-1} r_i
+      ! r_i^T M^{-1} r_i / SAS
       eta1 = eta0/global_sum(WORK0, distrb_tropic, &
                              field_loc_center, RCALCT_B)
-
+      ! alpha_i
       !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
-
+                                             
          X(:,:,iblock) = X(:,:,iblock) + eta1*S(:,:,iblock)
          R(:,:,iblock) = R(:,:,iblock) - eta1*Q(:,:,iblock)
 
@@ -342,7 +393,9 @@ contains
 
             call btrop_operator(R,X,this_block,iblock)
             R(:,:,iblock) = B(:,:,iblock) - R(:,:,iblock)
+            ! b - Ax
             WORK0(:,:,iblock) = R(:,:,iblock)*R(:,:,iblock)
+            ! R^2
          endif
       end do ! block loop
 
@@ -353,7 +406,8 @@ contains
 ! test for convergence
 !
 !-----------------------------------------------------------------------
-
+      
+      
       if (mod(m,solv_ncheck) == 0) then
 
          call update_ghost_cells(R, bndy_tropic, field_loc_center,&
@@ -379,6 +433,7 @@ contains
 
    rms_residual = sqrt(rr*resid_norm)
 
+   
    if (solv_sum_iters == solv_max_iters) then
       if (solv_convrg /= c0) then
          write(noconvrg,'(a45,i11)') &
