@@ -222,38 +222,46 @@ contains
       this_block ! block information for current block
 
    ! --------------------------------------------- MINE ---------------------------------------------------------
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      Xi, Ri, Ri1, Vsk1, Rsk1, Wj, Rj, &
-      T 
-
+   
    integer (int_kind), parameter :: step = 4
-
+   
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
       Vk
 
+   
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      Xi, Ri, Ri1, Vsk1, Rsk1, &
+      T, &
+      Xj1, Xj_1, Wj, Rj, Rj1, Rj_1
+
+
+   
    integer (int_kind) :: k, j
 
    real (r8) :: &
-      Gammaj, Uj, Vj, &
+      Gammaj, Rouj, Uj, Vj, &
+      Gammaj_1, Uj_1, Rouj_1, &
       Ts1, Ts2
 
    ! init
 
    !LINE: 1
-      Xi = c0
-      Ri = c0
-      T = simple_A(X)
-      Ri1 = B - T
+   Xj_1 = c0
+   Rj_1 = c0
+
+   Xj1 = X
+   Rj1 = B - simple_A(X)
 
    !LINE: 2
-   capcg_loop_j: do j = 1, 10
+   capcg_loop_j: do j = 1, solv_max_iters
+      X = Xj1
+      Rj = Rj1
 
       !LINE: 3
-      T = simple_A(Rj)
-      Wj = T
+      Wj = simple_A(Rj)
 
       !LINE: 4
-      ! Uj = Rj*Rj
+      Uj = simple_sum(Rj*Rj)
 
       ! CHECK
       if (mod(m,solv_ncheck) == 0) then
@@ -263,13 +271,12 @@ contains
          ! b - Ax
          WORK0 = R*R
          ! R^2
-         
-         rr = global_sum(WORK0, distrb_tropic, &
-                         field_loc_center, RCALCT_B) ! (r,r)
+
+         rr = simple_sum(WORK0)
 
             ! ljm tuning
-!            if (my_task == master_task) &
-!               write(6,*)'  iter#= ',m,' rr= ',rr
+           if (my_task == master_task) &
+              write(6,*)'  iter#= ',j,' rr= ',rr
          if (rr < solv_convrg) then
             ! ljm tuning
             if (my_task == master_task) &
@@ -282,9 +289,28 @@ contains
       ! ENDCHECK
       
       !LINE: 5
+      Vj = simple_sum(Wj*Rj)
 
+      !LINE: 6
+      Gammaj = Uj / Vj
+
+      !LINE: 7
+      if ( j == 1 ) then
+         Rouj = 1
+      else
+         Rouj = 1 / (1 - ( (Gammaj/Gammaj_1) * (Uj/Uj_1) * (1/Rouj_1) ) )
+      end if
      
+      !LINE: 12
+      Xj1 = Rouj * (X + Gammaj*Rj) + (1 - Rouj)*Xj_1
+      !LINE: 13
+      Rj1 = Rouj * (Rj - Gammaj*Wj) + (1 - Rouj)*Rj_1
 
+      Gammaj_1 = Gammaj
+      Uj_1 = Uj
+      Rouj_1 = Rouj
+      Xj_1 = X
+      Rj_1 = Rj
    enddo capcg_loop_j
 
    ! if (solv_sum_iters == solv_max_iters) then
@@ -294,6 +320,7 @@ contains
    !       call exit_POP(sigAbort,noconvrg)
    !    endif
    ! endif
+   return
 ! ------------------------------------------------ MINE END---------------------------------------------------------
 
 
@@ -367,13 +394,13 @@ contains
    rms_residual = sqrt(rr*resid_norm)
 
    
-   if (solv_sum_iters == solv_max_iters) then
-      if (solv_convrg /= c0) then
-         write(noconvrg,'(a45,i11)') &
-           'Barotropic solver not converged at time step ', nsteps_total
-         call exit_POP(sigAbort,noconvrg)
-      endif
-   endif
+   ! if (solv_sum_iters == solv_max_iters) then
+   !    if (solv_convrg /= c0) then
+   !       write(noconvrg,'(a45,i11)') &
+   !         'Barotropic solver not converged at time step ', nsteps_total
+   !       call exit_POP(sigAbort,noconvrg)
+   !    endif
+   ! endif
 
 return 
 ! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
