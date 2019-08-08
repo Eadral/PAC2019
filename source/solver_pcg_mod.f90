@@ -222,41 +222,85 @@ contains
       this_block ! block information for current block
 
    ! --------------------------------------------- MINE ---------------------------------------------------------
-   ! real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-   !    Xi, Ri, Ri1, Vsk1, Rsk1, &
-   !    T 
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      Xi, Ri, Ri1, Vsk1, Rsk1, Wj, Rj, &
+      T 
 
-   ! integer (int_kind), parameter :: step = 4
-   ! integer (int_kind) :: k
+   integer (int_kind), parameter :: step = 4
 
-   ! ! init
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
+      Vk
 
-   ! !LINE: 1
-   !    Xi = c0
-   !    Ri = c0
-   !    call btrop_operator(T,X,this_block,iblock)
-   !    Ri1= B - T
-   ! !ENDLINE: 1
+   integer (int_kind) :: k, j
 
-   ! !LINE: 2
-   ! capcg_loop: do k = 0, solv_max_iters
-   ! !ENDLINE: 2
+   real (r8) :: &
+      Gammaj, Uj, Vj, &
+      Ts1, Ts2
 
-   !    !LINE: 3
-   !       Vsk1 = Rsk1
-   !    !ENDLINE: 3
+   ! init
 
+   !LINE: 1
+      Xi = c0
+      Ri = c0
+      T = simple_A(X)
+      Ri1 = B - T
 
-   ! enddo capcg_loop
+   !LINE: 2
+   capcg_loop_j: do j = 1, 10
 
+      !LINE: 3
+      T = simple_A(Rj)
+      Wj = T
+
+      !LINE: 4
+      ! Uj = Rj*Rj
+
+      ! CHECK
+      if (mod(m,solv_ncheck) == 0) then
+
+         R = simple_A(X)
+         R = B - R
+         ! b - Ax
+         WORK0 = R*R
+         ! R^2
+         
+         rr = global_sum(WORK0, distrb_tropic, &
+                         field_loc_center, RCALCT_B) ! (r,r)
+
+            ! ljm tuning
+!            if (my_task == master_task) &
+!               write(6,*)'  iter#= ',m,' rr= ',rr
+         if (rr < solv_convrg) then
+            ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
+            solv_sum_iters = m
+            exit capcg_loop_j
+         endif
+
+      endif
+      ! ENDCHECK
+      
+      !LINE: 5
+
+     
+
+   enddo capcg_loop_j
+
+   ! if (solv_sum_iters == solv_max_iters) then
+   !    if (solv_convrg /= c0) then
+   !       write(noconvrg,'(a45,i11)') &
+   !         'Barotropic solver not converged at time step ', nsteps_total
+   !       call exit_POP(sigAbort,noconvrg)
+   !    endif
+   ! endif
 ! ------------------------------------------------ MINE END---------------------------------------------------------
 
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
 
-   call simple_btrop_operator(S,X)
-   R = B - S
+   R = B - simple_A(X)
    S = c0
 
    eta0 =c1
@@ -277,10 +321,10 @@ contains
 
       !*** (r,(PC)r)
       ! r_i^T M^{-1} r_i
-      eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
+      eta1 = simple_sum(WORK0)
 
       S = WORK1 + S*(eta1/eta0)
-      call simple_btrop_operator(Q,S)
+      Q = simple_A(S)
                              ! AS
       WORK0 = Q*S
       ! SAS
@@ -288,8 +332,7 @@ contains
       eta0 = eta1
       ! r_i^T M^{-1} r_i
       ! r_i^T M^{-1} r_i / SAS
-      eta1 = eta0/global_sum(WORK0, distrb_tropic, &
-                             field_loc_center, RCALCT_B)
+      eta1 = eta0 / simple_sum(WORK0)
       ! alpha_i
     
                                              
@@ -298,21 +341,13 @@ contains
 
       if (mod(m,solv_ncheck) == 0) then
 
-         call simple_btrop_operator(R,X)
+         R = simple_A(X)
          R = B - R
          ! b - Ax
          WORK0 = R*R
          ! R^2
-      endif
 
-
-      if (mod(m,solv_ncheck) == 0) then
-
-         call update_ghost_cells(R, bndy_tropic, field_loc_center,&
-                                                 field_type_scalar)
-
-         rr = global_sum(WORK0, distrb_tropic, &
-                         field_loc_center, RCALCT_B) ! (r,r)
+         rr = simple_sum(WORK0)
 
             ! ljm tuning
 !            if (my_task == master_task) &
@@ -596,13 +631,12 @@ return
 ! !IROUTINE: btrop_operator
 ! !INTERFACE:
 
-subroutine simple_btrop_operator(AX, X)
+function simple_A(X) result (AX)
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
       intent(in) :: &
       X ! array to be operated on
 
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
-      intent(out) :: &
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
       AX ! nine point operator result (Ax)
 
    integer (int_kind) :: &
@@ -623,7 +657,20 @@ subroutine simple_btrop_operator(AX, X)
    !ENDLINE: 1
 
 
-end subroutine simple_btrop_operator
+end function simple_A
+
+function simple_sum(X) result (s)
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      X ! array to be operated on
+
+   real (r8) :: s
+
+   s = global_sum(X, distrb_tropic, &
+                         field_loc_center, RCALCT_B) 
+
+end function simple_sum
 
  subroutine btrop_operator(AX,X,this_block,bid)
 
@@ -686,6 +733,8 @@ end subroutine simple_btrop_operator
 !EOC
 
  end subroutine btrop_operator
+
+include 'matpow.inc.f90'
 
 !***********************************************************************
 
