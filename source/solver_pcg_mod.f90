@@ -223,11 +223,13 @@ contains
 
    ! --------------------------------------------- MINE ---------------------------------------------------------
    
-   integer (int_kind), parameter :: step = 8
+   integer (int_kind), parameter :: step = 2
    
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
       Vk
 
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, step) :: &
+      Rk1s, Rk1s_1
    
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
       Xi, Ri, Ri1, Vsk1, Rsk1, &
@@ -236,13 +238,26 @@ contains
 
 
    
-   integer (int_kind) :: k, j
+   integer (int_kind) :: k, j, rs, vs
 
    real (r8) :: &
       Gammaj, Rouj, Uj, Vj, &
       Gammaj_1, Uj_1, Rouj_1, &
-      Ts1, Ts2
+      Ts1, Ts2, &
+      Rouk, Gammak
 
+
+   real (r8), dimension(2*step+1, 1) :: &
+      Dj, Dj_1, Dj_2
+   
+   real (r8), dimension(step, step) :: &
+      Tk_1, Tk
+
+
+   real (r8), dimension(step) :: Rouk1s, Gammak1s
+
+   real (r8), dimension(step+1, step) :: &
+      Bk
    ! init
 
    !LINE: 1
@@ -252,32 +267,75 @@ contains
    Xj1 = X
    Rj1 = B - simple_A(X)
 
-   !LINE: 2
+   ! for k = 0
+   Rouk1s = 1
+   Gammak1s = 1
+
+   Rouk = 1
+   Gammak = 1
+   
+   Tk_1 = 0
+   Rk1s_1 = c0
+
+
 
    capcg_loop_k: do k = 0, solv_max_iters
 
+      Rj1 = B - simple_A(X)
       Vsk1 = Rj1
 
       Vk = matpow(Vsk1, step)
+      Bk = compute_B(step)
 
+      ! for j = 2: Dj_1, Dj_2
+      Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+      Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+ 
       capcg_loop_j: do j = 1, step
          X = Xj1
          Rj = Rj1
 
-         !LINE: 4
-         Wj = simple_A(Rj)
+         ! if (my_task == master_task) &
+         !    write(6,*)'  iter k= ',k,'j=',j,'Dj_1= ',Dj_1
+         ! if (my_task == master_task) &
+         !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
+         Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+
+         ! if (my_task == master_task) &
+         !    write(6,*) Dj
+
+         Wj = c0
+         do rs = 1, step
+            Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
+         enddo 
+
+         ! if (my_task == master_task) &
+         !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
+
+         do vs = 1, step+1
+            Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
+
+            if (my_task == master_task) &
+            write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
+         enddo
+         
+         ! Wj = simple_A(Rj)
+         
+         rr = simple_sum(Wj-simple_A(Rj))
+         if (my_task == master_task) &
+         write(6,*)'diff=', rr
 
          !LINE: 5
          Uj = simple_sum(Rj*Rj)
 
          ! CHECK
-         if (j == step) then
+         if (.true.) then
 
             rr = Uj
 
                ! ljm tuning
             if (my_task == master_task) &
-               write(6,*)'  iter k= ',k,' rr= ',rr
+               write(6,*)'  iter k= ',k,'j=',j,' rr= ',rr
             if (rr < solv_convrg) then
                ! ljm tuning
                if (my_task == master_task) &
@@ -306,14 +364,33 @@ contains
          Xj1 = Rouj * (X + Gammaj*Rj) + (1 - Rouj)*Xj_1
          !LINE: 13
          Rj1 = Rouj * (Rj - Gammaj*Wj) + (1 - Rouj)*Rj_1
+         
+         ! update sk+j
+         Rouk1s(j) = Rouj
+         Gammak1s(j) = Gammaj
+         Rk1s(:,:,:, j) = Rj
 
+         ! update j_1
          Gammaj_1 = Gammaj
          Uj_1 = Uj
          Rouj_1 = Rouj
          Xj_1 = X
          Rj_1 = Rj
+
+         Dj_2 = Dj_1
+         Dj_1 = Dj
+         
       enddo capcg_loop_j
 
+      ! update k
+      Rouk = Rouj
+      Gammak = Gammaj
+
+
+      Tk =  compute_T(step, Rouk1s, Gammak1s)
+      ! update k_1
+      Tk_1 = Tk
+      Rk1s_1 = Rk1s
    enddo capcg_loop_k
 
    ! if (solv_sum_iters == solv_max_iters) then
