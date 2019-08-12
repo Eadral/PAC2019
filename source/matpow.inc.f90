@@ -23,9 +23,9 @@ end function matpow
 
 function compute_d(s, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2) result (D)
 
-    integer (int_kind), intent(in) :: s, k, j
+    integer (int_kind) :: s, k, j, iblock, iny
 
-    real (r8), dimension(2*s+1, 1) :: &
+    real (r8), dimension(ny_block,max_blocks_tropic, 2*s+1, 1) :: &
         D, DT1, DT2, Dj_1, Dj_2
 
     real (r8), dimension(s, s) :: &
@@ -34,18 +34,19 @@ function compute_d(s, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2
     real (r8), dimension(s+1, s) :: &
         Bk
 
-    real (r8), intent(in) :: Rouk, GammaK, Rouj_1, Gammaj_1
+    real (r8), dimension(ny_block,max_blocks_tropic) :: Rouk, GammaK, Rouj_1, Gammaj_1
+
 
 
     if ( k == 0 .and. j == 0 ) then
-        D = 0
+        D = c0
     else if ( k > 0 .and. j == 0) then
-        D = 0
-        D(s, 1) = 1
+        D = c0
+        D(:,:, s, 1) = c1
     else if (j == 1) then
-        D = 0
-        D(s+1, 1) = Bk(1, 1)
-        D(s+2, 1) = Bk(2, 1)
+        D = c0
+        D(:,:,s+1, 1) = Bk(1, 1)
+        D(:,:,s+2, 1) = Bk(2, 1)
     else
 
         ! if (my_task == master_task) &
@@ -55,24 +56,38 @@ function compute_d(s, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2
      
 
         DT1 = 0
-        DT1(1:s, 1) = matmul(Tk_1,  Dj_1(1:s, 1) )
-        DT1(s+1, 1) = - (Dj_1(s, 1) / (Rouk * GammaK))
+        do iblock=1,nblocks_tropic
+            do iny=1, ny_block
+                DT1(iny,iblock, 1:s, 1) = matmul(Tk_1,  Dj_1(iny,iblock, 1:s, 1) )
+            enddo
+        enddo
+        
+        DT1(:,:, s+1, 1) = - (Dj_1(:,:,s, 1) / (Rouk * GammaK))
         
         ! if (my_task == master_task) &
         ! write(6,*)'  iter k= ',k,'j=',j,'dt1= ',sum(DT1)
 
         DT2 = 0
-        DT2(s+1:2*s+1, 1) = matmul(Bk, Dj_1(s+1:2*s, 1) )
+        do iblock=1,nblocks_tropic
+            do iny=1, ny_block
+                DT2(iny,iblock, s+1:2*s+1, 1) = matmul(Bk, Dj_1(iny,iblock,s+1:2*s, 1) )
+            enddo
+        enddo
 
         ! if (my_task == master_task) &
         ! write(6,*)'  iter k= ',k,'j=',j,'dt2= ',sum(DT2)
+        
+        do iblock=1,nblocks_tropic
+            do iny=1, ny_block
+                D(iny,iblock,:,1) = Rouj_1(iny,iblock)*Dj_1(iny,iblock,:,1) + (1 - Rouj_1(iny,iblock))*Dj_2(iny,iblock,:,1) - &
+                    Rouj_1(iny,iblock)*Gammaj_1(iny,iblock)*DT1(iny,iblock,:,1) + &
+                    Rouj_1(iny,iblock)*Gammaj_1(iny,iblock)*DT2(iny,iblock,:,1)
+            enddo
+        enddo
+        
 
-        D = Rouj_1*Dj_1 + (1 - Rouj_1)*Dj_2 - &
-            Rouj_1*Gammaj_1*DT1 + &
-            Rouj_1*Gammaj_1*DT2
-
-            ! if (my_task == master_task) &
-            ! write(6,*)'  iter k= ',k,'j=',j,'Rouj_1= ',Rouj_1
+        ! if (my_task == master_task) &
+        ! write(6,*)'  iter k= ',k,'j=',j,'D= ',sum(D)
         
 
     end if

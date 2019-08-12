@@ -229,7 +229,7 @@ contains
 
    ! --------------------------------------------- MINE ---------------------------------------------------------
    
-   integer (int_kind), parameter :: step = 2
+   integer (int_kind), parameter :: step = 1
    
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
       Vk
@@ -252,14 +252,14 @@ contains
       Ts1, Ts2
 
 
-   real (r8), dimension(2*step+1, 1) :: &
+   real (r8), dimension(ny_block,max_blocks_tropic, 2*step+1, 1) :: &
       Dj, Dj_1, Dj_2
    
    real (r8), dimension(step, step) :: &
       Tk_1, Tk
 
 
-   real (r8), dimension(step) :: Rouk1s, Gammak1s
+   real (r8), dimension(ny_block,max_blocks_tropic, step) :: Rouk1s, Gammak1s
 
    real (r8), dimension(step+1, step) :: &
       Bk
@@ -291,12 +291,12 @@ contains
 
       Vsk1 = Rj1
 
-      ! Vk = matpow(Vsk1, step)
-      ! Bk = compute_B(step)
+      Vk = matpow(Vsk1, step)
+      Bk = compute_B(step)
 
       ! for j = 2: Dj_1, Dj_2
-      ! Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-      ! Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+      Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+      Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
  
       capcg_loop_j: do j = 1, step
          X = Xj1
@@ -306,27 +306,27 @@ contains
          !    write(6,*)'  iter k= ',k,'j=',j,'Dj_1= ',Dj_1
          ! if (my_task == master_task) &
          !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
-         ! Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+         Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
 
          ! if (my_task == master_task) &
          !    write(6,*) Dj
 
-         ! Wj = c0
-         ! do rs = 1, step
-         !    Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
-         ! enddo 
+         Wj = c0
+         do rs = 1, step
+            Wj = Wj + Rk1s_1(:,:,:, rs) * broad_rv(Dj(:,:, rs, 1))
+         enddo 
 
          ! if (my_task == master_task) &
          !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
 
-         ! do vs = 1, step+1
-         !    Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
+         do vs = 1, step+1
+            Wj = Wj + Vk(:,:,:, vs) * broad_rv(Dj(:,:, step + vs, 1))
 
-         !    if (my_task == master_task) &
-         !    write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
-         ! enddo
+            ! if (my_task == master_task) &
+            ! write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
+         enddo
          
-         Wj = simple_A(Rj)
+         ! Wj = simple_A(Rj)
          
          ! rr = simple_sum(Wj-simple_A(Rj))
          ! if (my_task == master_task) &
@@ -334,6 +334,9 @@ contains
 
          !LINE: 5
          Uj = simple_sum_v(Rj*Rj)
+
+         ! if (my_task == master_task) &
+         ! write(6,*)'uj=', Uj
 
          ! CHECK
          if (.true.) then
@@ -373,8 +376,8 @@ contains
          Rj1 = broad_rv(Rouj) * (Rj - broad_rv(Gammaj)*Wj) + (1 - broad_rv(Rouj))*Rj_1
          
          ! update sk+j
-         ! Rouk1s(j) = Rouj
-         ! Gammak1s(j) = Gammaj
+         Rouk1s(:,:, j) = Rouj
+         Gammak1s(:,:, j) = Gammaj
          Rk1s(:,:,:, j) = Rj
 
          ! update j_1
@@ -795,8 +798,12 @@ function simple_sum_v(X) result (V)
    real (r8), dimension(ny_block, max_blocks_tropic) &
       :: V
 
-   V = global_sum(X, distrb_tropic, &
-                         field_loc_center, RCALCT_B) 
+   integer (int_kind) :: inx
+   
+   V = 0
+   do inx = 1, nx_block
+      V = V + X(inx, :, :)
+   enddo
 
 end function simple_sum_v
 
