@@ -79,6 +79,12 @@ module solver_pcg_mod
       X,X0                  ! on input,  an initial guess for the solution
                          ! on output, solution of the linear system
    
+
+   ! interface simple_sum                    ! 虚拟函数名称show
+   !    module procedure simple_sum_s       ! 待选择的函数show_int，输入参数为整数
+   !    module procedure simple_sum_v ! 待选择的函数show_character 输入参数为字符
+   ! end interface
+
 contains
 
 !***********************************************************************
@@ -236,15 +242,14 @@ contains
       T, &
       Xj1, Xj_1, Wj, Rj, Rj1, Rj_1
 
+   real (r8), dimension(ny_block,max_blocks_tropic) :: &
+      L, Uj, Vj, Gammaj_1, Gammaj, Rouj, Rouj_1, Rouk, Gammak, Uj_1
 
    
    integer (int_kind) :: k, j, rs, vs
 
    real (r8) :: &
-      Gammaj, Rouj, Uj, Vj, &
-      Gammaj_1, Uj_1, Rouj_1, &
-      Ts1, Ts2, &
-      Rouk, Gammak
+      Ts1, Ts2
 
 
    real (r8), dimension(2*step+1, 1) :: &
@@ -286,12 +291,12 @@ contains
 
       Vsk1 = Rj1
 
-      Vk = matpow(Vsk1, step)
-      Bk = compute_B(step)
+      ! Vk = matpow(Vsk1, step)
+      ! Bk = compute_B(step)
 
       ! for j = 2: Dj_1, Dj_2
-      Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-      Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+      ! Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+      ! Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
  
       capcg_loop_j: do j = 1, step
          X = Xj1
@@ -301,39 +306,39 @@ contains
          !    write(6,*)'  iter k= ',k,'j=',j,'Dj_1= ',Dj_1
          ! if (my_task == master_task) &
          !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
-         Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
+         ! Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
 
-         if (my_task == master_task) &
-            write(6,*) Dj
+         ! if (my_task == master_task) &
+         !    write(6,*) Dj
 
-         Wj = c0
-         do rs = 1, step
-            Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
-         enddo 
+         ! Wj = c0
+         ! do rs = 1, step
+         !    Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
+         ! enddo 
 
-         if (my_task == master_task) &
-            write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
+         ! if (my_task == master_task) &
+         !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
 
-         do vs = 1, step+1
-            Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
+         ! do vs = 1, step+1
+         !    Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
 
-            if (my_task == master_task) &
-            write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
-         enddo
+         !    if (my_task == master_task) &
+         !    write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
+         ! enddo
          
-         ! Wj = simple_A(Rj)
+         Wj = simple_A(Rj)
          
          ! rr = simple_sum(Wj-simple_A(Rj))
          ! if (my_task == master_task) &
          ! write(6,*)'diff=', rr
 
          !LINE: 5
-         Uj = simple_sum(Rj*Rj)
+         Uj = simple_sum_v(Rj*Rj)
 
          ! CHECK
          if (.true.) then
 
-            rr = Uj
+            rr = simple_sum_s(Rj*Rj)
 
                ! ljm tuning
             if (my_task == master_task) &
@@ -350,26 +355,26 @@ contains
          ! ENDCHECK
          
          !LINE: 6
-         Vj = simple_sum(Wj*Rj)
+         Vj = simple_sum_v(Wj*Rj)
 
          !LINE: 7
          Gammaj = Uj / Vj
 
          !LINE: 8
          if ( k == 0 .and. j == 1 ) then
-            Rouj = 1
+            Rouj = c1
          else
-            Rouj = 1 / (1 - ( (Gammaj/Gammaj_1) * (Uj/Uj_1) * (1/Rouj_1) ) )
+            Rouj = c1 / (c1 - ( (Gammaj/Gammaj_1) * (Uj/Uj_1) * (1/Rouj_1) ) )
          end if
       
          !LINE: 12
-         Xj1 = Rouj * (X + Gammaj*Rj) + (1 - Rouj)*Xj_1
+         Xj1 = broad_rv(Rouj) * (X + broad_rv(Gammaj)*Rj) + (1 - broad_rv(Rouj))*Xj_1
          !LINE: 13
-         Rj1 = Rouj * (Rj - Gammaj*Wj) + (1 - Rouj)*Rj_1
+         Rj1 = broad_rv(Rouj) * (Rj - broad_rv(Gammaj)*Wj) + (1 - broad_rv(Rouj))*Rj_1
          
          ! update sk+j
-         Rouk1s(j) = Rouj
-         Gammak1s(j) = Gammaj
+         ! Rouk1s(j) = Rouj
+         ! Gammak1s(j) = Gammaj
          Rk1s(:,:,:, j) = Rj
 
          ! update j_1
@@ -430,7 +435,7 @@ contains
 
       !*** (r,(PC)r)
       ! r_i^T M^{-1} r_i
-      eta1 = simple_sum(WORK0)
+      eta1 = simple_sum_s(WORK0)
 
       S = WORK1 + S*(eta1/eta0)
       Q = simple_A(S)
@@ -441,7 +446,7 @@ contains
       eta0 = eta1
       ! r_i^T M^{-1} r_i
       ! r_i^T M^{-1} r_i / SAS
-      eta1 = eta0 / simple_sum(WORK0)
+      eta1 = eta0 / simple_sum_s(WORK0)
       ! alpha_i
     
                                              
@@ -456,7 +461,7 @@ contains
          WORK0 = R*R
          ! R^2
 
-         rr = simple_sum(WORK0)
+         rr = simple_sum_s(WORK0)
 
             ! ljm tuning
 !            if (my_task == master_task) &
@@ -768,7 +773,7 @@ function simple_A(X) result (AX)
 
 end function simple_A
 
-function simple_sum(X) result (s)
+function simple_sum_s(X) result (s)
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
       intent(in) :: &
@@ -779,7 +784,46 @@ function simple_sum(X) result (s)
    s = global_sum(X, distrb_tropic, &
                          field_loc_center, RCALCT_B) 
 
-end function simple_sum
+end function simple_sum_s
+
+function simple_sum_v(X) result (V)
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      X ! array to be operated on
+
+   real (r8), dimension(ny_block, max_blocks_tropic) &
+      :: V
+
+   V = global_sum(X, distrb_tropic, &
+                         field_loc_center, RCALCT_B) 
+
+end function simple_sum_v
+
+! function simple_sum_rv_s(X) result (s)
+
+!    real (r8), dimension(ny_block,max_blocks_tropic), &
+!       intent(in) :: &
+!       X ! array to be operated on
+
+!       real (r8) :: s
+
+!       s = global_sum(X, distrb_tropic, &
+!                             field_loc_center, RCALCT_B) 
+   
+! end function simple_sum_rv_s
+
+function broad_rv(X) result (V)
+
+   real (r8), dimension(ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      X ! array to be operated on
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: V
+
+     V = spread(X, 1, nx_block)
+   
+end function broad_rv
 
  subroutine btrop_operator(AX,X,this_block,bid)
 
