@@ -129,5 +129,6 @@ function compute_B(s) result(B)
     B = c0
     do k = 1, s
         B(k+1, k) = 1
+        ! B(k, k) = 0.000000001
     enddo
 end function compute_B
