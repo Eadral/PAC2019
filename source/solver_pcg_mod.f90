@@ -281,7 +281,9 @@ contains
 
    capcg_loop_k: do k = 0, solv_max_iters
 
-      Rj1 = B - simple_A(X)
+      ! may no need
+      ! Rj1 = B - simple_A(X)
+
       Vsk1 = Rj1
 
       Vk = matpow(Vsk1, step)
@@ -301,16 +303,16 @@ contains
          !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
          Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
 
-         ! if (my_task == master_task) &
-         !    write(6,*) Dj
+         if (my_task == master_task) &
+            write(6,*) Dj
 
          Wj = c0
          do rs = 1, step
             Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
          enddo 
 
-         ! if (my_task == master_task) &
-         !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
+         if (my_task == master_task) &
+            write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
 
          do vs = 1, step+1
             Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
@@ -321,9 +323,9 @@ contains
          
          ! Wj = simple_A(Rj)
          
-         rr = simple_sum(Wj-simple_A(Rj))
-         if (my_task == master_task) &
-         write(6,*)'diff=', rr
+         ! rr = simple_sum(Wj-simple_A(Rj))
+         ! if (my_task == master_task) &
+         ! write(6,*)'diff=', rr
 
          !LINE: 5
          Uj = simple_sum(Rj*Rj)
