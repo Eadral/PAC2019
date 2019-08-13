@@ -224,7 +224,7 @@ contains
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, w_k, u_k, w_k1, u_k1
+      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, w_k, u_k, w_k1, u_k1, rt_k, st_k, wt_k, ut_k, rt_k1, wt_k1, st_k1, ut_k1
 
    real (r8) :: &
       nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1, del_k, gam_k, del_k1, gam_k1
@@ -234,19 +234,23 @@ contains
    
    ! initialize
    r_k = B - simple_A(X)
-   p_k = r_k
-   nu_k = simple_sum(r_k * r_k)
+   rt_k = pcer(r_k)
+   p_k = rt_k
+   nu_k = simple_sum(rt_k * r_k)
    s_k = simple_A(p_k)
+   st_k = pcer(s_k)
    w_k = s_k
+   wt_k = st_k
    u_k = simple_A(w_k)
+   ut_k = pcer(u_k)
    mu_k = simple_sum(p_k * s_k)
    a_k = nu_k / mu_k
    a_k1 = 0
    a_k2 = 0
    b_k = 0
    b_k1 = 0
-   del_k = simple_sum(r_k * s_k)
-   gam_k = simple_sum(s_k*s_k)
+   del_k = simple_sum(r_k * st_k)
+   gam_k = simple_sum(st_k*s_k)
    !
 
    iter_loop_k: do k = 1, solv_max_iters
@@ -260,27 +264,35 @@ contains
 
       x_k1 = X
       r_k1 = r_k
+      rt_k1 = rt_k
       w_k1 = w_k
+      wt_k1 = wt_k
       p_k1 = p_k
       s_k1 = s_k
+      st_k1 = st_k
       u_k1 = u_k
+      ut_k1 = ut_k
 
       X = x_k1 + a_k1 * p_k1
       r_k = r_k1 - a_k1 * s_k1
+      rt_k = rt_k1 - a_k1 * st_k1
       w_k = w_k1 - a_k1 * u_k1
+      wt_k = wt_k1 - a_k1 * ut_k1
       ! nu_k = - nu_k1 + (a_k1*a_k1) * gam_k1
       nu_k = nu_k1 - 2 * a_k1 * del_k1 + (a_k1 * a_k1) * gam_k1
       b_k = nu_k / nu_k1
       p_k = r_k + b_k * p_k1
       s_k = w_k + b_k * s_k1
-      u_k = simple_A(s_k)
+      st_k = wt_k + b_k * st_k1
+      u_k = simple_A(st_k)
+      ut_k = pcer(u_k)
       ! w_k = was here
       mu_k = simple_sum(p_k * s_k)
-      del_k = simple_sum(r_k * s_k)
-      gam_k = simple_sum(s_k * s_k)
-      nu_k = simple_sum(r_k * r_k) 
+      del_k = simple_sum(r_k * st_k)
+      gam_k = simple_sum(st_k * s_k)
+      nu_k = simple_sum(rt_k * r_k) 
 
-      w_k = simple_A(r_k)
+      w_k = simple_A(rt_k)
 
       a_k = nu_k / mu_k
 
