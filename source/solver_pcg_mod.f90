@@ -284,15 +284,31 @@ contains
       p_k = r_k + b_k * p_k1
       s_k = w_k + b_k * s_k1
       st_k = wt_k + b_k * st_k1
+      !$OMP PARALLEL
+      !$OMP SECTIONS
       u_k = simple_A(st_k)
       ut_k = pcer(u_k)
-      ! w_k = was here
-      mu_k = simple_sum(p_k * s_k)
-      del_k = simple_sum(r_k * st_k)
-      gam_k = simple_sum(st_k * s_k)
-      nu_k = simple_sum(rt_k * r_k) 
-
+      !$OMP END SECTIONS
+      !$OMP SECTIONS
       w_k = simple_A(rt_k)
+      wt_k = pcer(w_k)
+      !$OMP END SECTIONS
+      !$OMP END PARALLEL
+      
+      !$OMP PARALLEL
+      !$OMP SECTIONS
+      mu_k = simple_sum(p_k * s_k)
+      !$OMP END SECTIONS
+      !$OMP SECTIONS
+      del_k = simple_sum(r_k * st_k)
+      !$OMP END SECTIONS
+      !$OMP SECTIONS
+      gam_k = simple_sum(st_k * s_k)
+      !$OMP END SECTIONS
+      !$OMP SECTIONS
+      nu_k = simple_sum(rt_k * r_k) 
+      !$OMP END SECTIONS
+      !$OMP END PARALLEL
 
       a_k = nu_k / mu_k
 
