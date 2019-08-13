@@ -111,7 +111,7 @@ function compute_T(s, Rouk1s, Gammak1s) result (T)
 
     Tu = matmul(Tt, diag)
 
-    T = Tu(1:s, 1:s)
+    T = Tu(2:s+1, 1:s)
 
 end function compute_T
 
