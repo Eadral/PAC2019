@@ -221,196 +221,13 @@ contains
    type (block) :: &
       this_block ! block information for current block
 
-   ! --------------------------------------------- MINE ---------------------------------------------------------
-   
-   ! integer (int_kind), parameter :: step = 2
-   
-   ! real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
-   !    Vk
-
-   ! real (r8), dimension(nx_block,ny_block,max_blocks_tropic, step) :: &
-   !    Rk1s, Rk1s_1
-   
-   ! real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-   !    Xi, Ri, Ri1, Vsk1, Rsk1, &
-   !    T, &
-   !    Xj1, Xj_1, Wj, Rj, Rj1, Rj_1
-
-
-   
-   ! integer (int_kind) :: k, j, rs, vs
-
-   ! real (r8) :: &
-   !    Gammaj, Rouj, Uj, Vj, &
-   !    Gammaj_1, Uj_1, Rouj_1, &
-   !    Ts1, Ts2, &
-   !    Rouk, Gammak
-
-
-   ! real (r8), dimension(2*step+1, 1) :: &
-   !    Dj, Dj_1, Dj_2
-   
-   ! real (r8), dimension(step, step) :: &
-   !    Tk_1, Tk
-
-
-   ! real (r8), dimension(step) :: Rouk1s, Gammak1s
-
-   ! real (r8), dimension(step+1, step) :: &
-   !    Bk
-   ! ! init
-
-   ! !LINE: 1
-   ! Xj_1 = c0
-   ! Rj_1 = c0
-
-   ! Xj1 = X
-   ! Rj1 = B - simple_A(X)
-
-   ! ! for k = 0
-   ! Rouk1s = 1
-   ! Gammak1s = 1
-
-   ! Rouk = 1
-   ! Gammak = 1
-   
-   ! Tk_1 = 0
-   ! Rk1s_1 = c0
-
-
-
-   ! capcg_loop_k: do k = 0, solv_max_iters
-
-   !    Rj1 = B - simple_A(X)
-   !    Vsk1 = Rj1
-
-   !    Vk = matpow(Vsk1, step)
-   !    Bk = compute_B(step)
-
-   !    ! for j = 2: Dj_1, Dj_2
-   !    Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-   !    Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
- 
-   !    capcg_loop_j: do j = 1, step
-   !       X = Xj1
-   !       Rj = Rj1
-
-   !       ! if (my_task == master_task) &
-   !       !    write(6,*)'  iter k= ',k,'j=',j,'Dj_1= ',Dj_1
-   !       ! if (my_task == master_task) &
-   !       !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
-   !       Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-
-   !       ! if (my_task == master_task) &
-   !       !    write(6,*) Dj
-
-   !       Wj = c0
-   !       do rs = 1, step
-   !          Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
-   !       enddo 
-
-   !       ! if (my_task == master_task) &
-   !       !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
-
-   !       do vs = 1, step+1
-   !          Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
-
-   !          if (my_task == master_task) &
-   !          write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
-   !       enddo
-         
-   !       ! Wj = simple_A(Rj)
-         
-   !       rr = simple_sum(Wj-simple_A(Rj))
-   !       if (my_task == master_task) &
-   !       write(6,*)'diff=', rr
-
-   !       !LINE: 5
-   !       Uj = simple_sum(Rj*Rj)
-
-   !       ! CHECK
-   !       if (.true.) then
-
-   !          rr = Uj
-
-   !             ! ljm tuning
-   !          if (my_task == master_task) &
-   !             write(6,*)'  iter k= ',k,'j=',j,' rr= ',rr
-   !          if (rr < solv_convrg) then
-   !             ! ljm tuning
-   !             if (my_task == master_task) &
-   !                write(6,*)'pcg_iter_loop:iter k= ',k,' rr= ',rr
-   !             solv_sum_iters = k
-   !             exit capcg_loop_k
-   !          endif
-
-   !       endif
-   !       ! ENDCHECK
-         
-   !       !LINE: 6
-   !       Vj = simple_sum(Wj*Rj)
-
-   !       !LINE: 7
-   !       Gammaj = Uj / Vj
-
-   !       !LINE: 8
-   !       if ( k == 0 .and. j == 1 ) then
-   !          Rouj = 1
-   !       else
-   !          Rouj = 1 / (1 - ( (Gammaj/Gammaj_1) * (Uj/Uj_1) * (1/Rouj_1) ) )
-   !       end if
-      
-   !       !LINE: 12
-   !       Xj1 = Rouj * (X + Gammaj*Rj) + (1 - Rouj)*Xj_1
-   !       !LINE: 13
-   !       Rj1 = Rouj * (Rj - Gammaj*Wj) + (1 - Rouj)*Rj_1
-         
-   !       ! update sk+j
-   !       Rouk1s(j) = Rouj
-   !       Gammak1s(j) = Gammaj
-   !       Rk1s(:,:,:, j) = Rj
-
-   !       ! update j_1
-   !       Gammaj_1 = Gammaj
-   !       Uj_1 = Uj
-   !       Rouj_1 = Rouj
-   !       Xj_1 = X
-   !       Rj_1 = Rj
-
-   !       Dj_2 = Dj_1
-   !       Dj_1 = Dj
-         
-   !    enddo capcg_loop_j
-
-   !    ! update k
-   !    Rouk = Rouj
-   !    Gammak = Gammaj
-
-
-   !    Tk =  compute_T(step, Rouk1s, Gammak1s)
-   !    ! update k_1
-   !    Tk_1 = Tk
-   !    Rk1s_1 = Rk1s
-   ! enddo capcg_loop_k
-
-   ! ! if (solv_sum_iters == solv_max_iters) then
-   ! !    if (solv_convrg /= c0) then
-   ! !       write(noconvrg,'(a45,i11)') &
-   ! !         'Barotropic solver not converged at time step ', nsteps_total
-   ! !       call exit_POP(sigAbort,noconvrg)
-   ! !    endif
-   ! ! endif
-   ! return
-! ------------------------------------------------ MINE END---------------------------------------------------------
-
-
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1
+      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, w_k, u_k, w_k1, u_k1
 
    real (r8) :: &
-      nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1
+      nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1, del_k, gam_k, del_k1, gam_k1
 
 
    integer (int_kind) :: k
@@ -420,12 +237,16 @@ contains
    p_k = r_k
    nu_k = simple_sum(r_k * r_k)
    s_k = simple_A(p_k)
+   w_k = s_k
+   u_k = simple_A(w_k)
    mu_k = simple_sum(p_k * s_k)
    a_k = nu_k / mu_k
    a_k1 = 0
    a_k2 = 0
    b_k = 0
    b_k1 = 0
+   del_k = simple_sum(r_k * s_k)
+   gam_k = simple_sum(s_k*s_k)
    !
 
    iter_loop_k: do k = 1, solv_max_iters
@@ -434,20 +255,33 @@ contains
       a_k1 = a_k
       b_k1 = b_k
       nu_k1 = nu_k
-      mu_k1 = mu_k
+      del_k1 = del_k
+      gam_k1 = gam_k
 
       x_k1 = X
       r_k1 = r_k
+      w_k1 = w_k
       p_k1 = p_k
       s_k1 = s_k
+      u_k1 = u_k
 
       X = x_k1 + a_k1 * p_k1
       r_k = r_k1 - a_k1 * s_k1
-      nu_k = simple_sum(r_k * r_k)
+      w_k = w_k1 - a_k1 * u_k1
+      ! nu_k = - nu_k1 + (a_k1*a_k1) * gam_k1
+      nu_k = nu_k1 - 2 * a_k1 * del_k1 + (a_k1 * a_k1) * gam_k1
       b_k = nu_k / nu_k1
       p_k = r_k + b_k * p_k1
-      s_k = simple_A(p_k)
+      s_k = w_k + b_k * s_k1
+      u_k = simple_A(s_k)
+      ! w_k = was here
       mu_k = simple_sum(p_k * s_k)
+      del_k = simple_sum(r_k * s_k)
+      gam_k = simple_sum(s_k * s_k)
+      nu_k = simple_sum(r_k * r_k) 
+
+      w_k = simple_A(r_k)
+
       a_k = nu_k / mu_k
 
 
