@@ -224,7 +224,7 @@ contains
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, w_k, u_k, w_k1, u_k1, rt_k, st_k, wt_k, ut_k, rt_k1, wt_k1, st_k1, ut_k1
+      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, rt_k, st_k, rt_k1, st_k1
 
    real (r8) :: &
       nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1, del_k, gam_k, del_k1, gam_k1
@@ -235,22 +235,18 @@ contains
    ! initialize
    r_k = B - simple_A(X)
    rt_k = pcer(r_k)
-   p_k = rt_k
    nu_k = simple_sum(rt_k * r_k)
+   p_k = rt_k
    s_k = simple_A(p_k)
    st_k = pcer(s_k)
-   w_k = s_k
-   wt_k = st_k
-   u_k = simple_A(w_k)
-   ut_k = pcer(u_k)
    mu_k = simple_sum(p_k * s_k)
    a_k = nu_k / mu_k
+   del_k = simple_sum(r_k * st_k)
+   gam_k = simple_sum(st_k*s_k)
    a_k1 = 0
    a_k2 = 0
    b_k = 0
    b_k1 = 0
-   del_k = simple_sum(r_k * st_k)
-   gam_k = simple_sum(st_k*s_k)
    !
 
    iter_loop_k: do k = 1, solv_max_iters
@@ -269,19 +265,13 @@ contains
          x_k1(:,:,iblock) = X(:,:,iblock)
          r_k1(:,:,iblock) = r_k(:,:,iblock)
          rt_k1(:,:,iblock) = rt_k(:,:,iblock)
-         w_k1(:,:,iblock) = w_k(:,:,iblock)
-         wt_k1(:,:,iblock) = wt_k(:,:,iblock)
          p_k1(:,:,iblock) = p_k(:,:,iblock)
          s_k1(:,:,iblock) = s_k(:,:,iblock)
          st_k1(:,:,iblock) = st_k(:,:,iblock)
-         u_k1(:,:,iblock) = u_k(:,:,iblock)
-         ut_k1(:,:,iblock) = ut_k(:,:,iblock)
 
          X(:,:,iblock) = x_k1(:,:,iblock) + a_k1 * p_k1(:,:,iblock)
          r_k(:,:,iblock) = r_k1(:,:,iblock) - a_k1 * s_k1(:,:,iblock)
          rt_k(:,:,iblock) = rt_k1(:,:,iblock) - a_k1 * st_k1(:,:,iblock)
-         w_k(:,:,iblock) = w_k1(:,:,iblock) - a_k1 * u_k1(:,:,iblock)
-         wt_k(:,:,iblock) = wt_k1(:,:,iblock) - a_k1 * ut_k1(:,:,iblock)
       end do ! block loop
       !$OMP END PARALLEL DO
 
@@ -295,22 +285,14 @@ contains
          this_block = get_block(blocks_tropic(iblock),iblock)
 
          p_k(:,:,iblock) = r_k(:,:,iblock) + b_k * p_k1(:,:,iblock)
-         s_k(:,:,iblock) = w_k(:,:,iblock) + b_k * s_k1(:,:,iblock)
-         st_k(:,:,iblock) = wt_k(:,:,iblock) + b_k * st_k1(:,:,iblock)
+
       end do ! block loop
       !$OMP END PARALLEL DO
 
-      !$OMP PARALLEL
-      !$OMP SECTIONS
-      u_k = simple_A(st_k)
-      ut_k = pcer(u_k)
-      !$OMP END SECTIONS
-      !$OMP SECTIONS
-      w_k = simple_A(rt_k)
-      wt_k = pcer(w_k)
-      !$OMP END SECTIONS
-      !$OMP END PARALLEL
+      s_k = simple_A(p_k)
+      st_k = pcer(s_k)
       
+
       !$OMP PARALLEL
       !$OMP SECTIONS
       mu_k = simple_sum(p_k * s_k)
@@ -371,7 +353,7 @@ contains
    !    endif
    ! endif
 
-! return 
+return 
 ! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
 
 
