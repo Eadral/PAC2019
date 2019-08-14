@@ -213,278 +213,13 @@ contains
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
       R, &! residual (b-Ax)
       S, &! conjugate direction vector
-      Q,WORK0,WORK1 ! various cg intermediate results
+      Q,WORK0,WORK1,WORK2 ! various cg intermediate results
 
    character (char_len) :: &
       noconvrg ! error message for no convergence
 
    type (block) :: &
       this_block ! block information for current block
-
-   ! --------------------------------------------- MINE ---------------------------------------------------------
-   
-   integer (int_kind), parameter :: step = 2
-   
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, 0 : step+1) :: &
-      Vk
-
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, step) :: &
-      Rk1s, Rk1s_1
-   
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      Xi, Ri, Ri1, Vsk1, Rsk1, &
-      T, &
-      Xj1, Xj_1, Wj, Rj, Rj1, Rj_1
-
-
-   
-   integer (int_kind) :: k, j, rs, vs
-
-   real (r8) :: &
-      Gammaj, Rouj, Uj, Vj, &
-      Gammaj_1, Uj_1, Rouj_1, &
-      Ts1, Ts2, &
-      Rouk, Gammak
-
-
-   real (r8), dimension(2*step+1, 1) :: &
-      Dj, Dj_1, Dj_2
-   
-   real (r8), dimension(step, step) :: &
-      Tk_1, Tk
-
-
-   real (r8), dimension(step) :: Rouk1s, Gammak1s
-
-   real (r8), dimension(step+1, step) :: &
-      Bk
-   ! init
-
-   !LINE: 1
-   Xj_1 = c0
-   Rj_1 = c0
-
-   Xj1 = X
-   Rj1 = B - simple_A(X)
-
-   ! for k = 0
-   Rouk1s = 1
-   Gammak1s = 1
-
-   Rouk = 1
-   Gammak = 1
-   
-   Tk_1 = 0
-   Rk1s_1 = c0
-
-
-
-   capcg_loop_k: do k = 0, solv_max_iters
-
-      Rj1 = B - simple_A(X)
-      Vsk1 = Rj1
-
-      Vk = matpow(Vsk1, step)
-      Bk = compute_B(step)
-
-      ! for j = 2: Dj_1, Dj_2
-      Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 1, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-      Dj_1 = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, 0, Rouj_1, Gammaj_1, Dj_1, Dj_2)
- 
-      capcg_loop_j: do j = 1, step
-         X = Xj1
-         Rj = Rj1
-
-         ! if (my_task == master_task) &
-         !    write(6,*)'  iter k= ',k,'j=',j,'Dj_1= ',Dj_1
-         ! if (my_task == master_task) &
-         !    write(6,*)'  iter k= ',k,'j=',j,'Dj_2= ',Dj_2
-         Dj = compute_d(step, Tk_1, Bk, k, Rouk, Gammak, j, Rouj_1, Gammaj_1, Dj_1, Dj_2)
-
-         ! if (my_task == master_task) &
-         !    write(6,*) Dj
-
-         Wj = c0
-         do rs = 1, step
-            Wj = Wj + Rk1s_1(:,:,:, rs) * Dj(rs, 1)
-         enddo 
-
-         ! if (my_task == master_task) &
-         !    write(6,*)'  iter k= ',k,'j=',j,'Wj= ',sum(Wj)
-
-         do vs = 1, step+1
-            Wj = Wj + Vk(:,:,:, vs) * Dj(step + vs, 1)
-
-            if (my_task == master_task) &
-            write(6,*)'  iter k= ',k,'j=',j,'Dj= ',Dj(step + vs, 1)
-         enddo
-         
-         ! Wj = simple_A(Rj)
-         
-         rr = simple_sum(Wj-simple_A(Rj))
-         if (my_task == master_task) &
-         write(6,*)'diff=', rr
-
-         !LINE: 5
-         Uj = simple_sum(Rj*Rj)
-
-         ! CHECK
-         if (.true.) then
-
-            rr = Uj
-
-               ! ljm tuning
-            if (my_task == master_task) &
-               write(6,*)'  iter k= ',k,'j=',j,' rr= ',rr
-            if (rr < solv_convrg) then
-               ! ljm tuning
-               if (my_task == master_task) &
-                  write(6,*)'pcg_iter_loop:iter k= ',k,' rr= ',rr
-               solv_sum_iters = k
-               exit capcg_loop_k
-            endif
-
-         endif
-         ! ENDCHECK
-         
-         !LINE: 6
-         Vj = simple_sum(Wj*Rj)
-
-         !LINE: 7
-         Gammaj = Uj / Vj
-
-         !LINE: 8
-         if ( k == 0 .and. j == 1 ) then
-            Rouj = 1
-         else
-            Rouj = 1 / (1 - ( (Gammaj/Gammaj_1) * (Uj/Uj_1) * (1/Rouj_1) ) )
-         end if
-      
-         !LINE: 12
-         Xj1 = Rouj * (X + Gammaj*Rj) + (1 - Rouj)*Xj_1
-         !LINE: 13
-         Rj1 = Rouj * (Rj - Gammaj*Wj) + (1 - Rouj)*Rj_1
-         
-         ! update sk+j
-         Rouk1s(j) = Rouj
-         Gammak1s(j) = Gammaj
-         Rk1s(:,:,:, j) = Rj
-
-         ! update j_1
-         Gammaj_1 = Gammaj
-         Uj_1 = Uj
-         Rouj_1 = Rouj
-         Xj_1 = X
-         Rj_1 = Rj
-
-         Dj_2 = Dj_1
-         Dj_1 = Dj
-         
-      enddo capcg_loop_j
-
-      ! update k
-      Rouk = Rouj
-      Gammak = Gammaj
-
-
-      Tk =  compute_T(step, Rouk1s, Gammak1s)
-      ! update k_1
-      Tk_1 = Tk
-      Rk1s_1 = Rk1s
-   enddo capcg_loop_k
-
-   ! if (solv_sum_iters == solv_max_iters) then
-   !    if (solv_convrg /= c0) then
-   !       write(noconvrg,'(a45,i11)') &
-   !         'Barotropic solver not converged at time step ', nsteps_total
-   !       call exit_POP(sigAbort,noconvrg)
-   !    endif
-   ! endif
-   return
-! ------------------------------------------------ MINE END---------------------------------------------------------
-
-
-! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
-
-
-   R = B - simple_A(X)
-   S = c0
-
-   eta0 =c1
-   solv_sum_iters = solv_max_iters
-
-   iter_loop_m: do m = 1, solv_max_iters
-
-
-      where (A0 /= c0)
-         WORK1 = R/A0
-      elsewhere
-         WORK1 = c0
-      endwhere
- 
-                                 ! M^{-1} r_i
-      WORK0 = R*WORK1
-         ! r_i^T M^{-1} r_i
-
-      !*** (r,(PC)r)
-      ! r_i^T M^{-1} r_i
-      eta1 = simple_sum(WORK0)
-
-      S = WORK1 + S*(eta1/eta0)
-      Q = simple_A(S)
-                             ! AS
-      WORK0 = Q*S
-      ! SAS
-
-      eta0 = eta1
-      ! r_i^T M^{-1} r_i
-      ! r_i^T M^{-1} r_i / SAS
-      eta1 = eta0 / simple_sum(WORK0)
-      ! alpha_i
-    
-                                             
-      X = X + eta1*S
-      R = R - eta1*Q
-
-      if (mod(m,solv_ncheck) == 0) then
-
-         R = simple_A(X)
-         R = B - R
-         ! b - Ax
-         WORK0 = R*R
-         ! R^2
-
-         rr = simple_sum(WORK0)
-
-            ! ljm tuning
-!            if (my_task == master_task) &
-!               write(6,*)'  iter#= ',m,' rr= ',rr
-         if (rr < solv_convrg) then
-            ! ljm tuning
-            if (my_task == master_task) &
-               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
-            solv_sum_iters = m
-            exit iter_loop_m
-         endif
-
-      endif
-
-   enddo iter_loop_m
-
-   rms_residual = sqrt(rr*resid_norm)
-
-   
-   ! if (solv_sum_iters == solv_max_iters) then
-   !    if (solv_convrg /= c0) then
-   !       write(noconvrg,'(a45,i11)') &
-   !         'Barotropic solver not converged at time step ', nsteps_total
-   !       call exit_POP(sigAbort,noconvrg)
-   !    endif
-   ! endif
-
-return 
-! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
-
 
 !-----------------------------------------------------------------------
 !
@@ -515,6 +250,27 @@ return
    eta0 =c1
    solv_sum_iters = solv_max_iters
 
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+
+      ! if (lprecond) then
+      !    call preconditioner(WORK1,R,this_block,iblock)
+      ! else
+         where (A0(:,:,iblock) /= c0)
+            WORK2(:,:,iblock) = 1/A0(:,:,iblock)
+         elsewhere
+            WORK2(:,:,iblock) = c0
+         endwhere
+      ! endif
+                                       ! M^{-1} r_i
+      ! WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
+      ! r_i^T M^{-1} r_i
+   end do ! block loop
+
+   !$OMP END PARALLEL DO
+
 !-----------------------------------------------------------------------
 !
 ! iterate
@@ -535,15 +291,16 @@ return
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
 
-         if (lprecond) then
-            call preconditioner(WORK1,R,this_block,iblock)
-         else
-            where (A0(:,:,iblock) /= c0)
-               WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
-            elsewhere
-               WORK1(:,:,iblock) = c0
-            endwhere
-         endif
+         ! if (lprecond) then
+         !    call preconditioner(WORK1,R,this_block,iblock)
+         ! else
+            ! where (A0(:,:,iblock) /= c0)
+            !    WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
+            ! elsewhere
+            !    WORK1(:,:,iblock) = c0
+            ! endwhere
+         ! endif
+         WORK1(:,:,iblock) = R(:,:,iblock)*WORK2(:,:,iblock)
                                           ! M^{-1} r_i
          WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
          ! r_i^T M^{-1} r_i
@@ -557,9 +314,9 @@ return
 !
 !-----------------------------------------------------------------------
 
-      if (lprecond) &
-         call update_ghost_cells(WORK1,bndy_tropic, field_loc_center,&
-                                                    field_type_scalar)
+      ! if (lprecond) &
+      !    call update_ghost_cells(WORK1,bndy_tropic, field_loc_center,&
+      !                                               field_type_scalar)
       !*** (r,(PC)r)
       ! r_i^T M^{-1} r_i
       eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
