@@ -223,10 +223,10 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 5
+   integer (int_kind), parameter :: step = 4
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-     r0, x0, p0
+     r0, x0, p0, AX
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic,solv_max_iters) :: &
      ri, xi, pi
@@ -284,8 +284,11 @@ contains
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
       P_P, P_R, R_R
 
-      
-   r0 = B - simple_A(X)
+   integer (int_kind) :: kc
+   
+   AX = simple_A(X)
+
+   r0 = B - AX
    p0 = r0
    xi(:,:,:, 1) = X
    ri(:,:,:, 1) = r0
@@ -302,7 +305,7 @@ contains
       call cpu_time(ts)
 
        ! CHECK
-         if (.true.) then
+         if (mod(its,solv_ncheck) == 0) then
 
             rr = simple_sum(  (B - simple_A(X)) )
             rr = rr * rr
@@ -321,9 +324,13 @@ contains
          endif
       ! ENDCHECK
 
-      P = computeBasis(pi(:,:,:, step*k+1), step, alp, bet, gam)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'2', (te-ts)*1000
+      call cpu_time(ts)
 
-      Rs = computeBasis(ri(:,:,:, step*k+1), step-1, alp, bet, gam)
+      PR(:,:,:, 1:step+1) = computeBasis(pi(:,:,:, step*k+1), step, alp, bet, gam)
+
+      PR(:,:,:, step+2:2*step+1) = computeBasis(ri(:,:,:, step*k+1), step-1, alp, bet, gam)
       
       Tt = 0
       Tt(1:step+1, 1:step) = T
@@ -337,8 +344,8 @@ contains
       
       x_c = 0
       
-      PR(:,:,:, 1:step+1) = P
-      PR(:,:,:, step+2:2*step+1) = Rs
+      ! PR(:,:,:, 1:step+1) = P
+      ! PR(:,:,:, step+2:2*step+1) = Rs
       ! G = 0
       ! do gi = 1, 2*step+1
       !    do gj = 1, 2*step+1
@@ -346,7 +353,7 @@ contains
       !    enddo
       ! enddo
       call cpu_time(te)
-      if (my_task == master_task) write(6, *)'2', ts-te
+      if (my_task == master_task) write(6, *)'3', (te-ts)*1000
       call cpu_time(ts)
 
 
@@ -359,11 +366,12 @@ contains
          this_block = get_block(blocks_tropic(iblock),iblock)
 
          do gi = 1, 2*step+1
-            do gj = 1, 2*step+1
+            do gj = gi, 2*step+1
               
                P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, gj)
                temp1 = local_sum( P_R, iblock )
                G(gi, gj) = G(gi, gj) + temp1
+               if (.not.(gi == gj)) &
                G(gj, gi) = G(gj, gi) + temp1
             enddo
          enddo
@@ -372,12 +380,67 @@ contains
 
       !$OMP END PARALLEL DO
 
+      ! G(1:step+1, 1:step+1) = 0
+      ! G(step+2:2*step+1,step+2:2*step+1) = 0
+
+      ! G = 0
+
+      ! !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
+
+      ! do iblock=1,nblocks_tropic
+      !    this_block = get_block(blocks_tropic(iblock),iblock)
+
+      !    do gi = 1, step+1
+      !       do gj = gi, step+1
+              
+      !          P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, gj)
+      !          temp1 = local_sum( P_R, iblock )
+      !          G(gi, gj) = G(gi, gj) + temp1
+      !          if (.not.(gi == gj)) &
+      !          G(gj, gi) = G(gj, gi) + temp1
+      !       enddo
+      !    enddo
+
+
+      !    do gi = 1, step
+      !       do gj = gi, step
+              
+      !          P_R(:,:,iblock) = PR(:,:,iblock, step+1+gi) * PR(:,:,iblock, step+1+gj)
+      !          temp1 = local_sum( P_R, iblock )
+      !          G(step+1+gi, step+1+gj) = G(step+1+gi, step+1+gj) + temp1
+      !          if (.not.(gi == gj)) &
+      !          G(step+1+gj, step+1+gi) = G(step+1+gj, step+1+gi) + temp1
+      !       enddo
+      !    enddo
+
+      !    do gi = 1, step+1
+      !       do gj = 1, step
+              
+      !          P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, step+1+gj)
+      !          temp1 = local_sum( P_R, iblock )
+      !          G(gi, step+1+gj) = G(gi, step+1+gj) + temp1
+      !          G(step+1+gi, gj) = G(step+1+gi, gj) + temp1
+      !          if (  (gi < gj) ) then
+      !          G(step+1+gj, gi) = G(step+1+gj, gi) + temp1
+      !          G(gj, step+1+gi) = G(gj, step+1+gi) + temp1
+      !          endif
+      !       enddo
+      !    enddo
+
+      ! end do ! block loop
+
+      ! !$OMP END PARALLEL DO
+
+      ! G(1:step+1, 1:step+1) = G(1:step+1, 1:step+1) * 2
+      ! G(step+2:2*step+1,step+2:2*step+1) = G(step+2:2*step+1,step+2:2*step+1) * 2
+
+
       call cpu_time(te)
-      if (my_task == master_task) write(6, *)'4', ts-te
+      if (my_task == master_task) write(6, *)'4', (te-ts)*1000
       call cpu_time(ts)
       G = global_sum(G, distrb_tropic)
       call cpu_time(te)
-      if (my_task == master_task) write(6, *)'5', ts-te
+      if (my_task == master_task) write(6, *)'5', (te-ts)*1000
       call cpu_time(ts)
 
       ! stop
@@ -406,7 +469,7 @@ contains
       enddo
 
       call cpu_time(te)
-      if (my_task == master_task) write(6, *)'6', ts-te
+      if (my_task == master_task) write(6, *)'6', (te-ts)*1000
       call cpu_time(ts)
 
       !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
@@ -414,11 +477,24 @@ contains
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
 
-         xi(:,:,iblock, step*(k+1)+1) = coeff_add(x_c(:,step+1), PR(:,:,iblock,:)) + xi(:,:,iblock, step*k+1)
+         xi(:,:,iblock, step*(k+1)+1) = xi(:,:,iblock, step*k+1)
 
-         ri(:,:,iblock, step*(k+1)+1)  = coeff_add(r_c(:,step+1), PR(:,:,iblock,:))
+         ri(:,:,iblock, step*(k+1)+1) = 0
 
-         pi(:,:,iblock, step*(k+1)+1)  = coeff_add(p_c(:,step+1), PR(:,:,iblock,:))
+         pi(:,:,iblock, step*(k+1)+1) = 0
+
+      
+         do kc = 1, 2*step+1
+
+            xi(:,:,iblock, step*(k+1)+1) = xi(:,:,iblock, step*(k+1)+1) + x_c(kc,step+1) * PR(:,:,iblock,kc)
+
+            ri(:,:,iblock, step*(k+1)+1) = ri(:,:,iblock, step*(k+1)+1) + r_c(kc,step+1) * PR(:,:,iblock,kc)
+
+            pi(:,:,iblock, step*(k+1)+1) = pi(:,:,iblock, step*(k+1)+1) +  p_c(kc,step+1) * PR(:,:,iblock,kc)
+
+         enddo
+
+         
 
          X(:,:,iblock) = xi(:,:,iblock, step*(k+1)+1)
 
@@ -432,7 +508,7 @@ contains
       k = k+1
 
       call cpu_time(te)
-      if (my_task == master_task) write(6, *)'7', ts-te
+      if (my_task == master_task) write(6, *)'7', (te-ts)*1000
 
    enddo iters
 
@@ -471,7 +547,7 @@ end subroutine basisparams
 function computeBasis(x, s, alp, bet, gam) result (V)
 
    integer (int_kind) :: &
-      j, s
+      j, s, iblock
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic,s+1) :: &
      V
@@ -485,15 +561,50 @@ function computeBasis(x, s, alp, bet, gam) result (V)
    real (r8), dimension(s-1, 1) :: &
       bet
 
+   real (r8) :: ts, te, t1, t2
+
+   type (block) :: &
+      this_block ! block information for current block
+
    V(:,:,:, 1) = x
 
+  t1 = 0
+  t2 = 0
+
    if (s > 0) then
-      V(:,:,:, 2) = (1/gam(1, 1)) * simple_A( V(:,:,:, 1) )
+
+   
+      ! V(:,:,:, 2) = (1/gam(1, 1)) * simple_A( V(:,:,:, 1) )
       
-      do j = 2, s
-         V(:,:,:, j+1) = (1/gam(j, 1))* simple_A( V(:,:,:, j) )
+      do j = 1, s
+
+      !        !LINE: 1
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         call cpu_time(ts)
+
+      call btrop_operator(V(:,:,:, j+1), V(:,:,:, j), this_block,iblock)
+      call cpu_time(te)
+
+      t1 = t1 + te-  ts
+      end do ! block loop
+      !$OMP END PARALLEL DO
+      call cpu_time(ts)
+      call update_ghost_cells(V(:,:,:, j+1), bndy_tropic, field_loc_center, field_type_scalar)
+      call cpu_time(te)
+
+      t2 = t2 + te - ts
+      !ENDLINE: 1
+
+
+         ! V(:,:,:, j+1) =  simple_A( V(:,:,:, j) )
       enddo
 
+      if (my_task == master_task) write(6, *)'3.1', (t1)*1000
+
+      if (my_task == master_task) write(6, *)'3.2', (t2)*1000
    endif
 
 end function computeBasis
