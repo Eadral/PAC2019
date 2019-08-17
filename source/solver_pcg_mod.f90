@@ -223,98 +223,74 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
+   integer (int_kind), parameter :: step = 2
+
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, rt_k, st_k, rt_k1, st_k1
+     r0, x0, p0
 
-   real (r8) :: &
-      nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1, del_k, gam_k, del_k1, gam_k1
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,solv_max_iters) :: &
+     ri, xi, pi
 
 
-   integer (int_kind) :: k
+   integer (int_kind) :: &
+      k, its, gi, gj, j
+
+   !
+   real (r8), dimension(step, 1) :: &
+      alp, gam
+
+   real (r8), dimension(step-1, 1) :: &
+      bet
+
+   real (r8), dimension(step+1, step) :: &
+      T
+
    
-   ! initialize
-   r_k = B - simple_A(X)
-   rt_k = pcer(r_k)
-   nu_k = simple_sum(rt_k * r_k)
-   p_k = rt_k
-   s_k = simple_A(p_k)
-   st_k = pcer(s_k)
-   mu_k = simple_sum(p_k * s_k)
-   a_k = nu_k / mu_k
-   del_k = simple_sum(r_k * st_k)
-   gam_k = simple_sum(st_k*s_k)
-   a_k1 = 0
-   a_k2 = 0
-   b_k = 0
-   b_k1 = 0
    !
 
-   iter_loop_k: do k = 1, solv_max_iters
-      
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-      do iblock=1,nblocks_tropic
-         this_block = get_block(blocks_tropic(iblock),iblock)
+   !
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,step+1) :: &
+      P
+   
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,step) :: &
+      Rs
+   !
 
-         a_k2 = a_k1
-         a_k1 = a_k
-         b_k1 = b_k
-         nu_k1 = nu_k
-         del_k1 = del_k
-         gam_k1 = gam_k
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,2*step+1) :: &
+      PR
+   
 
-         x_k1(:,:,iblock) = X(:,:,iblock)
-         r_k1(:,:,iblock) = r_k(:,:,iblock)
-         rt_k1(:,:,iblock) = rt_k(:,:,iblock)
-         p_k1(:,:,iblock) = p_k(:,:,iblock)
-         s_k1(:,:,iblock) = s_k(:,:,iblock)
-         st_k1(:,:,iblock) = st_k(:,:,iblock)
+   real (r8), dimension(2*step+1, 2*step+1) :: &
+      Tt
 
-         X(:,:,iblock) = x_k1(:,:,iblock) + a_k1 * p_k1(:,:,iblock)
-         r_k(:,:,iblock) = r_k1(:,:,iblock) - a_k1 * s_k1(:,:,iblock)
-         rt_k(:,:,iblock) = rt_k1(:,:,iblock) - a_k1 * st_k1(:,:,iblock)
-      end do ! block loop
-      !$OMP END PARALLEL DO
+   real (r8), dimension(2*step+1, step+1) :: &
+      p_c, r_c, x_c
 
-      
-      ! nu_k = - nu_k1 + (a_k1*a_k1) * gam_k1
-      nu_k = nu_k1 - 2 * a_k1 * del_k1 + (a_k1 * a_k1) * gam_k1
-      b_k = nu_k / nu_k1
+   real (r8), dimension(2*step+1, 2*step+1) :: &
+      G
 
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-      do iblock=1,nblocks_tropic
-         this_block = get_block(blocks_tropic(iblock),iblock)
+   real (r8), dimension(solv_max_iters) :: &
+      alpha, beta
+   
+   r0 = B - simple_A(X)
+   p0 = r0
+   xi(:,:,:, 1) = x0
+   ri(:,:,:, 1) = r0
+   pi(:,:,:, 1) = p0
 
-         p_k(:,:,iblock) = r_k(:,:,iblock) + b_k * p_k1(:,:,iblock)
+   k = 0
 
-      end do ! block loop
-      !$OMP END PARALLEL DO
+   call basisparams(step, alp, bet, gam, T)
 
-      s_k = simple_A(p_k)
-      st_k = pcer(s_k)
-      
+   its = 1
 
-      !$OMP PARALLEL
-      !$OMP SECTIONS
-      mu_k = simple_sum(p_k * s_k)
-      !$OMP END SECTIONS
-      !$OMP SECTIONS
-      del_k = simple_sum(r_k * st_k)
-      !$OMP END SECTIONS
-      !$OMP SECTIONS
-      gam_k = simple_sum(st_k * s_k)
-      !$OMP END SECTIONS
-      !$OMP SECTIONS
-      nu_k = simple_sum(rt_k * r_k) 
-      !$OMP END SECTIONS
-      !$OMP END PARALLEL
+   iters: do while (its < solv_max_iters)
 
-      a_k = nu_k / mu_k
-
-
-      ! CHECK
+       ! CHECK
          if (.true.) then
 
-            rr = abs(nu_k)
+            rr = simple_sum(  (B - simple_A(X)) )
+            rr = rr * rr
 
                ! ljm tuning
             if (my_task == master_task) &
@@ -324,290 +300,258 @@ contains
                if (my_task == master_task) &
                   write(6,*)'pcg_iter_loop:iter k= ',k,' rr= ',rr
                solv_sum_iters = k
-               exit iter_loop_k
+               exit iters
             endif
 
          endif
       ! ENDCHECK
+
+      P = computeBasis(pi(:,:,:, step*k+1), step, alp, bet, gam)
+
+      Rs = computeBasis(ri(:,:,:, step*k+1), step-1, alp, bet, gam)
+      
+      Tt = 0
+      Tt(1:step+1, 1:step) = T
+      Tt(step+2:2*step+1, step+2:2*step) = T(1:step, 1:(step-1))
+
+      p_c = 0
+      p_c(1, 1) = 1
+
+      r_c = 0
+      r_c(step+2, 1) = 1
+      
+      x_c = 0
+      
+      PR(:,:,:, 1:step+1) = P
+      PR(:,:,:, step+2:2*step+1) = Rs
+      G = 0
+      do gi = 1, 2*step+1
+         do gj = 1, 2*step+1
+            G(gi, gj) = simple_sum( PR(:,:,:, gi) * PR(:,:,:, gj) )
+         enddo
+      enddo
+
+      do j = 1, step
+         
+         if (its >= solv_max_iters) then
+            exit iters
+         endif 
+
+         its = its + 1
+
+         alpha(its) = gram(r_c(:,j), G, r_c(:,j), step) / gram_Tt(p_c(:,j), G, Tt, p_c(:,j), step )  
+
+         x_c(:,j+1) = x_c(:,j) + alpha(its)*p_c(:,j)
+
+         xi(:,:,:, step*k+j+1) = coeff_add(x_c(:,j+1), PR) + xi(:,:,:, step*k+1)
+
+         r_c(:,j+1) = r_c(:,j) - matmul(alpha(its)*Tt, p_c(:,j) )
+         
+         ri(:,:,:, step*k+j+1)  = coeff_add(r_c(:,j+1), PR)
+
+         beta(its) =  gram(r_c(:,j+1), G, r_c(:,j+1), step) /  gram(r_c(:,j), G, r_c(:,j), step) 
+
+         p_c(:,j+1) = r_c(:,j+1) + beta(its)*p_c(:,j)
+
+         pi(:,:,:, step*k+j+1)  = coeff_add(p_c(:,j+1), PR)
+
+         X = xi(:,:,:, step*k+j+1)
+      enddo
+
+      k = k+1
       
 
-      ! if (my_task == master_task) &
-      !    write(6,*) &
-      !       'X= ',sum(X), &
-      !       'Rk= ',sum(Rk), &
-      !       'RHk= ',sum(RHk), &
-      !       'Pk= ',sum(Pk), &
-      !       'Sk= ',sum(Sk), &
-      !       'Vk= ',Vk, &
-      !       'Alpha= ',Alphak
+   enddo iters
 
-   enddo iter_loop_k
-
-
-   
-   ! if (solv_sum_iters == solv_max_iters) then
-   !    if (solv_convrg /= c0) then
-   !       write(noconvrg,'(a45,i11)') &
-   !         'Barotropic solver not converged at time step ', nsteps_total
-   !       call exit_POP(sigAbort,noconvrg)
-   !    endif
-   ! endif
 
 return 
+end subroutine pcg
 ! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
 
-
-!-----------------------------------------------------------------------
-!
-! compute initial residual and initialize S
-!
-!-----------------------------------------------------------------------
-
-   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-
-   do iblock=1,nblocks_tropic
-      this_block = get_block(blocks_tropic(iblock),iblock)
-
-      call btrop_operator(S,X,this_block,iblock)
-      R(:,:,iblock) = B(:,:,iblock) - S(:,:,iblock)
-      S(:,:,iblock) = c0
-   end do ! block loop
-
-   !$OMP END PARALLEL DO
-
-!-----------------------------------------------------------------------
-!
-! initialize fields and scalars
-!
-!-----------------------------------------------------------------------
-
-   call update_ghost_cells(R, bndy_tropic, field_loc_center, &
-                                           field_type_scalar)
-   eta0 =c1
-   solv_sum_iters = solv_max_iters
-
-!-----------------------------------------------------------------------
-!
-! iterate
-!
-!-----------------------------------------------------------------------
-
-   iter_loop: do m = 1, solv_max_iters
-
-!-----------------------------------------------------------------------
-!
-! calculate (PC)r
-! diagonal preconditioner if preconditioner not specified
-!
-!-----------------------------------------------------------------------
-
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-
-      do iblock=1,nblocks_tropic
-         this_block = get_block(blocks_tropic(iblock),iblock)
-
-         if (lprecond) then
-            call preconditioner(WORK1,R,this_block,iblock)
-         else
-            where (A0(:,:,iblock) /= c0)
-               WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
-            elsewhere
-               WORK1(:,:,iblock) = c0
-            endwhere
-         endif
-                                          ! M^{-1} r_i
-         WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
-         ! r_i^T M^{-1} r_i
-      end do ! block loop
-
-      !$OMP END PARALLEL DO
-
-!-----------------------------------------------------------------------
-!
-! update conjugate direction vector s
-!
-!-----------------------------------------------------------------------
-
-      if (lprecond) &
-         call update_ghost_cells(WORK1,bndy_tropic, field_loc_center,&
-                                                    field_type_scalar)
-      !*** (r,(PC)r)
-      ! r_i^T M^{-1} r_i
-      eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
-
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-
-      do iblock=1,nblocks_tropic
-         this_block = get_block(blocks_tropic(iblock),iblock)
-                        ! M^{-1} r_i + d (beta_{i+1} / beta_i)
-         S(:,:,iblock) = WORK1(:,:,iblock) + S(:,:,iblock)*(eta1/eta0)
-        
-
-!-----------------------------------------------------------------------
-!
-! compute As
-!
-!-----------------------------------------------------------------------
-
-         call btrop_operator(Q,S,this_block,iblock)
-                             ! AS
-         WORK0(:,:,iblock) = Q(:,:,iblock)*S(:,:,iblock)
-         ! SAS
-      end do ! block loop
-
-      !$OMP END PARALLEL DO
-
-!-----------------------------------------------------------------------
-!
-! compute next solution and residual
-!
-!-----------------------------------------------------------------------
-
-      call update_ghost_cells(Q, bndy_tropic, field_loc_center, &
-                                              field_type_scalar)
-
-      eta0 = eta1
-      ! r_i^T M^{-1} r_i
-      ! r_i^T M^{-1} r_i / SAS
-      eta1 = eta0/global_sum(WORK0, distrb_tropic, &
-                             field_loc_center, RCALCT_B)
-      ! alpha_i
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
-
-      do iblock=1,nblocks_tropic
-         this_block = get_block(blocks_tropic(iblock),iblock)
-                                             
-         X(:,:,iblock) = X(:,:,iblock) + eta1*S(:,:,iblock)
-         R(:,:,iblock) = R(:,:,iblock) - eta1*Q(:,:,iblock)
-
-         if (mod(m,solv_ncheck) == 0) then
-
-            call btrop_operator(R,X,this_block,iblock)
-            R(:,:,iblock) = B(:,:,iblock) - R(:,:,iblock)
-            ! b - Ax
-            WORK0(:,:,iblock) = R(:,:,iblock)*R(:,:,iblock)
-            ! R^2
-         endif
-      end do ! block loop
-
-      !$OMP END PARALLEL DO
-
-!-----------------------------------------------------------------------
-!
-! test for convergence
-!
-!-----------------------------------------------------------------------
-      
-      
-      if (mod(m,solv_ncheck) == 0) then
-
-         call update_ghost_cells(R, bndy_tropic, field_loc_center,&
-                                                 field_type_scalar)
-
-         rr = global_sum(WORK0, distrb_tropic, &
-                         field_loc_center, RCALCT_B) ! (r,r)
-
-            ! ljm tuning
-!            if (my_task == master_task) &
-!               write(6,*)'  iter#= ',m,' rr= ',rr
-         if (rr < solv_convrg) then
-            ! ljm tuning
-            if (my_task == master_task) &
-               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
-            solv_sum_iters = m
-            exit iter_loop
-         endif
-
-      endif
-
-   enddo iter_loop
-
-   rms_residual = sqrt(rr*resid_norm)
-
-   
-   if (solv_sum_iters == solv_max_iters) then
-      if (solv_convrg /= c0) then
-         write(noconvrg,'(a45,i11)') &
-           'Barotropic solver not converged at time step ', nsteps_total
-         call exit_POP(sigAbort,noconvrg)
-      endif
-   endif
-
-!-----------------------------------------------------------------------
-!EOC
-
- end subroutine pcg
-
-!***********************************************************************
-!BOP
-! !IROUTINE: preconditioner
-! !INTERFACE:
-
- subroutine preconditioner(PX,X,this_block,bid)
-
-! !DESCRIPTION:
-! This function applies a precomputed preconditioner as a nine-point
-! stencil operator.
-!
-! !REVISION HISTORY:
-! same as module
-
-! !INPUT PARAMETERS:
-
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
-      intent(in) :: &
-      X ! array to be operated on
-
-   type (block), intent(in) :: &
-      this_block ! block info for this block
-
-   integer (int_kind), intent(in) :: &
-      bid ! local block address for this block
-
-! !OUTPUT PARAMETERS:
-
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
-      intent(out) :: &
-      PX ! nine point operator result
-
-!EOP
-!BOC
-!-----------------------------------------------------------------------
-!
-! local variables
-!
-!-----------------------------------------------------------------------
+subroutine basisparams(s, alp, bet, gam, T)
 
    integer (int_kind) :: &
-      i,j ! dummy counters
+      k, s
 
-!-----------------------------------------------------------------------
+   real (r8), dimension(s, 1), intent(out):: &
+      alp, gam
 
-   PX(:,:,bid) = c0
+   real (r8), dimension(s-1, 1), intent(out) :: &
+      bet
 
-   do j=this_block%jb,this_block%je
-   do i=this_block%ib,this_block%ie
-      PX(i,j,bid) = PCNE(i,j,bid)*X(i+1,j+1,bid) + &
-                    PCNW(i,j,bid)*X(i-1,j+1,bid) + &
-                    PCSE(i,j,bid)*X(i+1,j-1,bid) + &
-                    PCSW(i,j,bid)*X(i-1,j-1,bid) + &
-                    PCN (i,j,bid)*X(i ,j+1,bid) + &
-                    PCS (i,j,bid)*X(i ,j-1,bid) + &
-                    PCE (i,j,bid)*X(i+1,j ,bid) + &
-                    PCW (i,j,bid)*X(i-1,j ,bid) + &
-                    PCC (i,j,bid)*X(i ,j ,bid)
-   end do
-   end do
+   real (r8), dimension(s+1, s), intent(out) :: &
+      T
+   
+   ! monomial
+   alp = 0 
+   bet = 0
+   gam = 1
 
-!-----------------------------------------------------------------------
-!EOC
+   T = 0
+   do k = 1, s
+      T(k+1, k) = gam(k, 1)
+   enddo
 
- end subroutine preconditioner
+
+end subroutine basisparams
+
+function computeBasis(x, s, alp, bet, gam) result (V)
+
+   integer (int_kind) :: &
+      j, s
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,s+1) :: &
+     V
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+     x
+
+   real (r8), dimension(s, 1) :: &
+      alp, gam
+
+   real (r8), dimension(s-1, 1) :: &
+      bet
+
+   V(:,:,:, 1) = x
+
+   if (s > 0) then
+      V(:,:,:, 2) = (1/gam(1, 1)) * simple_A( V(:,:,:, 1) )
+      
+      do j = 2, s
+         V(:,:,:, j+1) = (1/gam(j, 1))* simple_A( V(:,:,:, j) )
+      enddo
+
+   endif
+
+end function computeBasis
+
+function eye() result (Y)
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      Y
+
+   where (A0 /= c0)
+      Y = 1
+   elsewhere
+      Y = c0
+   endwhere
+
+endfunction eye
+
+function gram(a, G, b, s) result (r)
+
+   integer (int_kind) :: &
+      s, ki, kj
+
+   real (r8), dimension(2*s+1) :: &
+      a, b
+
+   real (r8), dimension(2*s+1, 2*s+1) :: &
+      G
+   
+   real (r8) :: &
+      r
+
+   real (r8), dimension(1, 2*s+1) :: &
+      aa
+
+   real (r8), dimension(2*s+1, 1) :: &
+      bb
+
+   real (r8), dimension(1, 1) :: &
+      rr
+
+   aa = spread(a, dim=1, ncopies=1)
+
+   bb = spread(b, dim=2, ncopies=1)
+
+   rr = matmul( matmul( aa, G ), bb )
+
+   r = rr(1, 1)
+
+endfunction gram
+
+function gram_Tt(a, G, Tt, b, s) result (r)
+
+   integer (int_kind) :: &
+      s, ki, kj
+
+   real (r8), dimension(2*s+1) :: &
+      a, b
+
+   real (r8), dimension(2*s+1, 2*s+1) :: &
+      G, Tt
+   
+   real (r8) :: &
+      r
+
+   real (r8), dimension(1, 2*s+1) :: &
+      aa
+
+   real (r8), dimension(2*s+1, 1) :: &
+      bb
+
+   real (r8), dimension(1, 1) :: &
+      rr
+
+   aa = spread(a, dim=1, ncopies=1)
+
+   bb = spread(b, dim=2, ncopies=1)
+
+   ! rr = matmul( matmul( aa, G ), bb )
+   rr = matmul(matmul(matmul(aa, G), Tt), bb )
+
+   r = rr(1, 1)
+
+endfunction gram_Tt
+
+function row_v(x) result (y)
+
+   real (r8), dimension(:) :: x
+
+   real (r8), dimension(1, size(x, dim=1)) :: y
+
+   y = spread(x, dim=1, ncopies=1)
+
+endfunction row_v
+
+function col_v(x) result (y)
+
+   real (r8), dimension(:) :: x
+
+   real (r8), dimension(size(x, dim=1), 1) :: y
+
+   y = spread(x, dim=2, ncopies=1)
+
+end function col_v
+
+function coeff_add(c, X) result (V)
+
+   real (r8), dimension(:) :: c
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, size(c, dim=1)) :: &
+      X
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      V
+
+   integer (int_kind) :: k
+
+   V = 0
+   do k = 1,  size(c, dim=1)
+      V = V + c(k) * X(:,:,:, k)
+   enddo
+
+   
+
+end function coeff_add
 
 !***********************************************************************
 !BOP
 ! !IROUTINE: btrop_operator
 ! !INTERFACE:
+
+! ORIGIN
 
 function simple_A(X) result (AX)
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
