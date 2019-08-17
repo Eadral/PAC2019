@@ -223,7 +223,7 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 2
+   integer (int_kind), parameter :: step = 5
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      r0, x0, p0
@@ -274,15 +274,15 @@ contains
    
    r0 = B - simple_A(X)
    p0 = r0
-   xi(:,:,:, 1) = x0
+   xi(:,:,:, 1) = X
    ri(:,:,:, 1) = r0
    pi(:,:,:, 1) = p0
 
    k = 0
 
-   call basisparams(step, alp, bet, gam, T)
+   its = 0
 
-   its = 1
+   call basisparams(step, alp, bet, gam, T)
 
    iters: do while (its < solv_max_iters)
 
@@ -294,12 +294,12 @@ contains
 
                ! ljm tuning
             if (my_task == master_task) &
-               write(6,*)'  iter k= ',k,' rr= ',rr
+               write(6,*)'  iter its= ',its,' rr= ',rr
             if (rr < solv_convrg) then
                ! ljm tuning
                if (my_task == master_task) &
-                  write(6,*)'pcg_iter_loop:iter k= ',k,' rr= ',rr
-               solv_sum_iters = k
+                  write(6,*)'pcg_iter_loop:iter its= ',its,' rr= ',rr
+               solv_sum_iters = its
                exit iters
             endif
 
