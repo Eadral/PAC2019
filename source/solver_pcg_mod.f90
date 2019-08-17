@@ -233,7 +233,7 @@ contains
 
 
    integer (int_kind) :: &
-      k, its, gi, gj, j
+      k, its, gi, gj, j, inner, outer
 
    !
    real (r8), dimension(step, 1) :: &
@@ -269,9 +269,22 @@ contains
    real (r8), dimension(2*step+1, 2*step+1) :: &
       G
 
+   real (r8), dimension(2*step*step+2*step+2) :: &
+      Gl
+
    real (r8), dimension(solv_max_iters) :: &
       alpha, beta
    
+   real (r8), dimension(step) :: &
+      D
+
+   real (r8) :: &
+      temp1, ts, te
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      P_P, P_R, R_R
+
+      
    r0 = B - simple_A(X)
    p0 = r0
    xi(:,:,:, 1) = X
@@ -285,6 +298,8 @@ contains
    call basisparams(step, alp, bet, gam, T)
 
    iters: do while (its < solv_max_iters)
+
+      call cpu_time(ts)
 
        ! CHECK
          if (.true.) then
@@ -324,12 +339,48 @@ contains
       
       PR(:,:,:, 1:step+1) = P
       PR(:,:,:, step+2:2*step+1) = Rs
+      ! G = 0
+      ! do gi = 1, 2*step+1
+      !    do gj = 1, 2*step+1
+      !       G(gi, gj) = simple_sum( PR(:,:,:, gi) * PR(:,:,:, gj) )
+      !    enddo
+      ! enddo
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'2', ts-te
+      call cpu_time(ts)
+
+
+
       G = 0
-      do gi = 1, 2*step+1
-         do gj = 1, 2*step+1
-            G(gi, gj) = simple_sum( PR(:,:,:, gi) * PR(:,:,:, gj) )
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         do gi = 1, 2*step+1
+            do gj = 1, 2*step+1
+              
+               P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, gj)
+               temp1 = local_sum( P_R, iblock )
+               G(gi, gj) = G(gi, gj) + temp1
+               G(gj, gi) = G(gj, gi) + temp1
+            enddo
          enddo
-      enddo
+
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'4', ts-te
+      call cpu_time(ts)
+      G = global_sum(G, distrb_tropic)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'5', ts-te
+      call cpu_time(ts)
+
+      ! stop
 
       do j = 1, step
          
@@ -339,27 +390,49 @@ contains
 
          its = its + 1
 
-         alpha(its) = gram(r_c(:,j), G, r_c(:,j), step) / gram_Tt(p_c(:,j), G, Tt, p_c(:,j), step )  
+         D(j) = gram(r_c(:,j), G, r_c(:,j), step) 
+
+         alpha(its) = D(j) / gram_Tt(p_c(:,j), G, Tt, p_c(:,j), step )  
 
          x_c(:,j+1) = x_c(:,j) + alpha(its)*p_c(:,j)
 
-         xi(:,:,:, step*k+j+1) = coeff_add(x_c(:,j+1), PR) + xi(:,:,:, step*k+1)
-
          r_c(:,j+1) = r_c(:,j) - matmul(alpha(its)*Tt, p_c(:,j) )
-         
-         ri(:,:,:, step*k+j+1)  = coeff_add(r_c(:,j+1), PR)
 
-         beta(its) =  gram(r_c(:,j+1), G, r_c(:,j+1), step) /  gram(r_c(:,j), G, r_c(:,j), step) 
+         beta(its) =  gram(r_c(:,j+1), G, r_c(:,j+1), step) /  D(j)
 
          p_c(:,j+1) = r_c(:,j+1) + beta(its)*p_c(:,j)
 
-         pi(:,:,:, step*k+j+1)  = coeff_add(p_c(:,j+1), PR)
 
-         X = xi(:,:,:, step*k+j+1)
       enddo
 
-      k = k+1
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'6', ts-te
+      call cpu_time(ts)
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         xi(:,:,iblock, step*(k+1)+1) = coeff_add(x_c(:,step+1), PR(:,:,iblock,:)) + xi(:,:,iblock, step*k+1)
+
+         ri(:,:,iblock, step*(k+1)+1)  = coeff_add(r_c(:,step+1), PR(:,:,iblock,:))
+
+         pi(:,:,iblock, step*(k+1)+1)  = coeff_add(p_c(:,step+1), PR(:,:,iblock,:))
+
+         X(:,:,iblock) = xi(:,:,iblock, step*(k+1)+1)
+
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
       
+
+
+      k = k+1
+
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'7', ts-te
 
    enddo iters
 
@@ -450,7 +523,7 @@ function gram(a, G, b, s) result (r)
       G
    
    real (r8) :: &
-      r
+      r, r1, r2
 
    real (r8), dimension(1, 2*s+1) :: &
       aa
@@ -469,12 +542,24 @@ function gram(a, G, b, s) result (r)
 
    r = rr(1, 1)
 
+
+   ! r2 = 0
+   ! do ki = 1, 2*s+1
+   !    r1 = 0
+   !    do kj = 1, 2*s+1
+   !       r1 = r1 + a(kj) * G(kj, ki)
+   !    enddo
+   !    r2 = r2 + r1 * b(ki)
+   ! enddo
+
+   ! r = r2
+
 endfunction gram
 
 function gram_Tt(a, G, Tt, b, s) result (r)
 
    integer (int_kind) :: &
-      s, ki, kj
+      s, ki, kj, kk
 
    real (r8), dimension(2*s+1) :: &
       a, b
@@ -529,17 +614,17 @@ function coeff_add(c, X) result (V)
 
    real (r8), dimension(:) :: c
 
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic, size(c, dim=1)) :: &
+   real (r8), dimension(nx_block,ny_block, size(c, dim=1)) :: &
       X
 
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+   real (r8), dimension(nx_block,ny_block) :: &
       V
 
    integer (int_kind) :: k
 
    V = 0
    do k = 1,  size(c, dim=1)
-      V = V + c(k) * X(:,:,:, k)
+      V = V + c(k) * X(:,:, k)
    enddo
 
    
@@ -552,6 +637,37 @@ end function coeff_add
 ! !INTERFACE:
 
 ! ORIGIN
+
+function local_sum(X, bid)
+
+   real (r8), dimension(:,:,:), intent(in) :: &
+      X                    ! array to be summed
+
+   type (distrb) :: &
+      dist                 ! block distribution for array X
+
+   integer (int_kind) :: &
+      i,j,n,             &! local counters
+      ib,ie,jb,je,       &! beg,end of physical domain
+      bid               ! block location
+
+   real (r8) ::          &
+      local_sum           ! sum of all local blocks
+
+   dist = distrb_tropic
+
+   
+   ! do n=1,dist%local_block_num
+      ! bid = n
+      call get_block_parameter(dist%local_block_ids(bid),ib=ib,ie=ie,jb=jb,je=je)
+         do j=jb,je
+         do i=ib,ie
+            local_sum = local_sum + X(i,j,bid)
+         end do
+         end do
+   ! end do !block loop
+
+endfunction local_sum
 
 function simple_A(X) result (AX)
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &

@@ -50,6 +50,7 @@
                       global_sum_real,             &
                       global_sum_int,              &
                       global_sum_1d_dbl,           &
+                      global_sum_2d_dbl,           &
                       global_sum_scalar_dbl,       &
                       global_sum_scalar_real,      &
                       global_sum_scalar_int
@@ -1388,6 +1389,52 @@
 !-----------------------------------------------------------------------
 
  end function global_sum_1d_dbl
+
+ function global_sum_2d_dbl(array, dist)
+
+   !-----------------------------------------------------------------------
+   !
+   !  this function returns the sum of vector values across processors
+   !
+   !-----------------------------------------------------------------------
+   
+      include 'mpif.h'  ! MPI Fortran include file
+   
+      type (distrb), intent(in) :: &
+         dist                 ! distribution from which this is called
+   
+      real (r8), dimension(:, :), intent(in) :: &
+         array                ! local vector to be summed
+   
+      real (r8), dimension(size(array,dim=1), size(array,dim=2)) :: &
+         global_sum_2d_dbl   ! resulting global sum
+   
+      integer (int_kind) :: ierr ! MPI error flag
+   
+   !-----------------------------------------------------------------------
+   !
+   !  local variables
+   !
+   !-----------------------------------------------------------------------
+      integer (int_kind) :: &
+         numFields           ! number of 1d vector to sum
+   
+      numFields = size(array,dim=1) * size(array,dim=2)
+   
+      if (dist%nprocs > 1) then
+         if (my_task < dist%nprocs) then
+            call MPI_ALLREDUCE(array, global_sum_2d_dbl, numFields, &
+                               mpi_dbl, MPI_SUM, dist%communicator, ierr)
+         else
+            global_sum_2d_dbl = c0
+         endif
+      else
+         global_sum_2d_dbl = array
+      endif
+   
+   !-----------------------------------------------------------------------
+   
+    end function global_sum_2d_dbl
 
 !***********************************************************************
 !***********************************************************************
