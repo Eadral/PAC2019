@@ -286,15 +286,33 @@ contains
 
    integer (int_kind) :: kc
    
-   
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+      
+      call btrop_operator(AX, X, this_block,iblock)
 
-   AX = simple_A(X)
+   enddo
+   !$OMP END PARALLEL DO
+
+   call update_ghost_cells(AX, bndy_tropic, field_loc_center, field_type_scalar)
+
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+      
+
+      ri(:,:,iblock) = B(:,:,iblock) - AX(:,:,iblock)
+      pi(:,:,iblock) = ri(:,:,iblock)
+   enddo
+   !$OMP END PARALLEL DO
+   ! AX = simple_A(X)
 
    ! r0 = B - AX
    ! p0 = r0
    ! xi(:,:,:) = X
-   ri(:,:,:) = B - AX
-   pi(:,:,:) = ri(:,:,:)
+   ! ri(:,:,:) = B - AX
+   ! pi(:,:,:) = ri(:,:,:)
 
    k = 0
 
@@ -313,10 +331,17 @@ contains
 
       ! PR(:,:,:, step+2:2*step+1) = computeBasis(ri(:,:,:), step-1, alp, bet, gam)
 
-      
-         PR(:,:,:, 1) = pi(:,:,:)
+         !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+         do iblock=1,nblocks_tropic
+            this_block = get_block(blocks_tropic(iblock),iblock)
+            
+            PR(:,:,iblock, 1) = pi(:,:,iblock)
 
-         PR(:,:,:, step+2) = ri(:,:,:)
+            PR(:,:,iblock, step+2) = ri(:,:,iblock)
+         enddo
+         !$OMP END PARALLEL DO
+
+      
 
          do jj = 1, step-1
             !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
@@ -327,6 +352,7 @@ contains
                PR(:,:,iblock, step+1+jj+1) = c0
 
                do j=this_block%jb,this_block%je
+               !DIR$ IVDEP UNROLL
                do i=this_block%ib,this_block%ie
                   PR(i,j,iblock, jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock,jj) + &
                                 AN (i ,j ,iblock)*PR(i ,j+1,iblock,jj) + &

@@ -27,7 +27,7 @@ OPTIONS="-O3 -xHost -ipo -parallel -par-affinity=granularity=fine,proclist=[0,1,
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io_netcdf.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io_binary.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io.f90
-mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c global_reductions.f90
+#mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c global_reductions.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c grid.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c prognostic.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c time_management.f90
