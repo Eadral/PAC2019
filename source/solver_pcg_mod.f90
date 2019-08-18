@@ -223,7 +223,7 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 2
+   integer (int_kind), parameter :: step = 4
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      r0, x0, p0, AX
