@@ -223,17 +223,17 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 4
+   integer (int_kind), parameter :: step = 3
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      r0, x0, p0, AX
 
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic,solv_max_iters) :: &
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      ri, xi, pi
 
 
    integer (int_kind) :: &
-      k, its, gi, gj, j, inner, outer
+      k, its, gi, gj, j, inner, outer, jj, i
 
    !
    real (r8), dimension(step, 1) :: &
@@ -290,9 +290,9 @@ contains
 
    r0 = B - AX
    p0 = r0
-   xi(:,:,:, 1) = X
-   ri(:,:,:, 1) = r0
-   pi(:,:,:, 1) = p0
+   ! xi(:,:,:) = X
+   ri(:,:,:) = r0
+   pi(:,:,:) = p0
 
    k = 0
 
@@ -300,37 +300,72 @@ contains
 
    call basisparams(step, alp, bet, gam, T)
 
+   ! solv_max_iters = 180
+
    iters: do while (its < solv_max_iters)
 
       call cpu_time(ts)
 
-       ! CHECK
-         if (mod(its,solv_ncheck) == 0) then
 
-            rr = simple_sum(  (B - simple_A(X)) )
-            rr = rr * rr
+      ! PR(:,:,:, 1:step+1) = computeBasis(pi(:,:,:), step, alp, bet, gam)
 
-               ! ljm tuning
-            if (my_task == master_task) &
-               write(6,*)'  iter its= ',its,' rr= ',rr
-            if (rr < solv_convrg) then
-               ! ljm tuning
-               if (my_task == master_task) &
-                  write(6,*)'pcg_iter_loop:iter its= ',its,' rr= ',rr
-               solv_sum_iters = its
-               exit iters
-            endif
+      ! PR(:,:,:, step+2:2*step+1) = computeBasis(ri(:,:,:), step-1, alp, bet, gam)
 
-         endif
-      ! ENDCHECK
+      
+         PR(:,:,:, 1) = pi(:,:,:)
 
-      call cpu_time(te)
-      if (my_task == master_task) write(6, *)'2', (te-ts)*1000
-      call cpu_time(ts)
+         PR(:,:,:, step+2) = ri(:,:,:)
 
-      PR(:,:,:, 1:step+1) = computeBasis(pi(:,:,:, step*k+1), step, alp, bet, gam)
+         do jj = 1, step-1
+            !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+            do iblock=1,nblocks_tropic
+               this_block = get_block(blocks_tropic(iblock),iblock)
+      
+               ! PR(:,:,iblock, jj+1) = c0
+               ! PR(:,:,iblock, step+1+jj+1) = c0
 
-      PR(:,:,:, step+2:2*step+1) = computeBasis(ri(:,:,:, step*k+1), step-1, alp, bet, gam)
+               ! do j=this_block%jb,this_block%je
+               ! do i=this_block%ib,this_block%ie
+               !    PR(i,j,iblock, jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock,jj) + &
+               !                  AN (i ,j ,iblock)*PR(i ,j+1,iblock,jj) + &
+               !                  AN (i ,j-1,iblock)*PR(i ,j-1,iblock,jj) + &
+               !                  AE (i ,j ,iblock)*PR(i+1,j ,iblock,jj) + &
+               !                  AE (i-1,j ,iblock)*PR(i-1,j ,iblock,jj) + &
+               !                  ANE(i ,j ,iblock)*PR(i+1,j+1,iblock,jj) + &
+               !                  ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock,jj) + &
+               !                  ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock,jj) + &
+               !                  ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock,jj)
+
+               !    PR(i,j,iblock, step+1+jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock, step+1+jj) + &
+               !                  AN (i ,j ,iblock)*PR(i ,j+1,iblock, step+1+jj) + &
+               !                  AN (i ,j-1,iblock)*PR(i ,j-1,iblock, step+1+jj) + &
+               !                  AE (i ,j ,iblock)*PR(i+1,j ,iblock, step+1+jj) + &
+               !                  AE (i-1,j ,iblock)*PR(i-1,j ,iblock, step+1+jj) + &
+               !                  ANE(i ,j ,iblock)*PR(i+1,j+1,iblock, step+1+jj) + &
+               !                  ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock, step+1+jj) + &
+               !                  ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock, step+1+jj) + &
+               !                  ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock, step+1+jj)
+               ! end do
+               ! end do
+            
+            call btrop_operator(PR(:,:,:, jj+1), PR(:,:,:, jj), this_block,iblock)
+            call btrop_operator(PR(:,:,:, step+1+jj+1), PR(:,:,:, step+1+jj), this_block,iblock)
+            enddo
+            !$OMP END PARALLEL DO
+            call update_ghost_cells(PR(:,:,:, jj+1), bndy_tropic, field_loc_center, field_type_scalar)
+            call update_ghost_cells(PR(:,:,:, step+1+jj+1), bndy_tropic, field_loc_center, field_type_scalar)
+         enddo
+
+         jj = step
+         !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+         do iblock=1,nblocks_tropic
+            this_block = get_block(blocks_tropic(iblock),iblock)
+   
+         call btrop_operator(PR(:,:,:, jj+1), PR(:,:,:, jj), this_block,iblock)
+         enddo
+         !$OMP END PARALLEL DO
+         call update_ghost_cells(PR(:,:,:, jj+1), bndy_tropic, field_loc_center, field_type_scalar)
+
       
       Tt = 0
       Tt(1:step+1, 1:step) = T
@@ -360,7 +395,7 @@ contains
 
       G = 0
 
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
@@ -377,63 +412,6 @@ contains
          enddo
 
       end do ! block loop
-
-      !$OMP END PARALLEL DO
-
-      ! G(1:step+1, 1:step+1) = 0
-      ! G(step+2:2*step+1,step+2:2*step+1) = 0
-
-      ! G = 0
-
-      ! !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
-
-      ! do iblock=1,nblocks_tropic
-      !    this_block = get_block(blocks_tropic(iblock),iblock)
-
-      !    do gi = 1, step+1
-      !       do gj = gi, step+1
-              
-      !          P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, gj)
-      !          temp1 = local_sum( P_R, iblock )
-      !          G(gi, gj) = G(gi, gj) + temp1
-      !          if (.not.(gi == gj)) &
-      !          G(gj, gi) = G(gj, gi) + temp1
-      !       enddo
-      !    enddo
-
-
-      !    do gi = 1, step
-      !       do gj = gi, step
-              
-      !          P_R(:,:,iblock) = PR(:,:,iblock, step+1+gi) * PR(:,:,iblock, step+1+gj)
-      !          temp1 = local_sum( P_R, iblock )
-      !          G(step+1+gi, step+1+gj) = G(step+1+gi, step+1+gj) + temp1
-      !          if (.not.(gi == gj)) &
-      !          G(step+1+gj, step+1+gi) = G(step+1+gj, step+1+gi) + temp1
-      !       enddo
-      !    enddo
-
-      !    do gi = 1, step+1
-      !       do gj = 1, step
-              
-      !          P_R(:,:,iblock) = PR(:,:,iblock, gi) * PR(:,:,iblock, step+1+gj)
-      !          temp1 = local_sum( P_R, iblock )
-      !          G(gi, step+1+gj) = G(gi, step+1+gj) + temp1
-      !          G(step+1+gi, gj) = G(step+1+gi, gj) + temp1
-      !          if (  (gi < gj) ) then
-      !          G(step+1+gj, gi) = G(step+1+gj, gi) + temp1
-      !          G(gj, step+1+gi) = G(gj, step+1+gi) + temp1
-      !          endif
-      !       enddo
-      !    enddo
-
-      ! end do ! block loop
-
-      ! !$OMP END PARALLEL DO
-
-      ! G(1:step+1, 1:step+1) = G(1:step+1, 1:step+1) * 2
-      ! G(step+2:2*step+1,step+2:2*step+1) = G(step+2:2*step+1,step+2:2*step+1) * 2
-
 
       call cpu_time(te)
       if (my_task == master_task) write(6, *)'4', (te-ts)*1000
@@ -477,35 +455,49 @@ contains
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
 
-         xi(:,:,iblock, step*(k+1)+1) = xi(:,:,iblock, step*k+1)
+         ri(:,:,iblock) = 0
 
-         ri(:,:,iblock, step*(k+1)+1) = 0
+         pi(:,:,iblock) = 0
 
-         pi(:,:,iblock, step*(k+1)+1) = 0
-
-      
          do kc = 1, 2*step+1
 
-            xi(:,:,iblock, step*(k+1)+1) = xi(:,:,iblock, step*(k+1)+1) + x_c(kc,step+1) * PR(:,:,iblock,kc)
+            X(:,:,iblock) = X(:,:,iblock) + x_c(kc,step+1) * PR(:,:,iblock,kc)
 
-            ri(:,:,iblock, step*(k+1)+1) = ri(:,:,iblock, step*(k+1)+1) + r_c(kc,step+1) * PR(:,:,iblock,kc)
+            ri(:,:,iblock) = ri(:,:,iblock) + r_c(kc,step+1) * PR(:,:,iblock,kc)
 
-            pi(:,:,iblock, step*(k+1)+1) = pi(:,:,iblock, step*(k+1)+1) +  p_c(kc,step+1) * PR(:,:,iblock,kc)
+            pi(:,:,iblock) = pi(:,:,iblock) +  p_c(kc,step+1) * PR(:,:,iblock,kc)
 
          enddo
 
-         
-
-         X(:,:,iblock) = xi(:,:,iblock, step*(k+1)+1)
+         ! X(:,:,iblock) = xi(:,:,iblock)
 
       end do ! block loop
 
       !$OMP END PARALLEL DO
 
-      
-
 
       k = k+1
+
+      
+       ! CHECK
+      if (.true.) then
+
+         rr = simple_sum( ri )
+         rr = rr * rr / 10
+
+            ! ljm tuning
+         if (my_task == master_task) &
+            write(6,*)'  iter its= ',its,' rr= ',rr
+         if (rr < solv_convrg) then
+            ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'pcg_iter_loop:iter its= ',its,' rr= ',rr
+            solv_sum_iters = its
+            exit iters
+         endif
+
+      endif
+   ! ENDCHECK
 
       call cpu_time(te)
       if (my_task == master_task) write(6, *)'7', (te-ts)*1000
@@ -568,8 +560,8 @@ function computeBasis(x, s, alp, bet, gam) result (V)
 
    V(:,:,:, 1) = x
 
-  t1 = 0
-  t2 = 0
+!   t1 = 0
+!   t2 = 0
 
    if (s > 0) then
 
@@ -583,28 +575,28 @@ function computeBasis(x, s, alp, bet, gam) result (V)
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
 
-         call cpu_time(ts)
+         ! call cpu_time(ts)
 
       call btrop_operator(V(:,:,:, j+1), V(:,:,:, j), this_block,iblock)
-      call cpu_time(te)
+      ! call cpu_time(te)
 
-      t1 = t1 + te-  ts
+      ! t1 = t1 + te-  ts
       end do ! block loop
       !$OMP END PARALLEL DO
-      call cpu_time(ts)
+      ! call cpu_time(ts)
       call update_ghost_cells(V(:,:,:, j+1), bndy_tropic, field_loc_center, field_type_scalar)
-      call cpu_time(te)
+      ! call cpu_time(te)
 
-      t2 = t2 + te - ts
+      ! t2 = t2 + te - ts
       !ENDLINE: 1
 
 
          ! V(:,:,:, j+1) =  simple_A( V(:,:,:, j) )
       enddo
 
-      if (my_task == master_task) write(6, *)'3.1', (t1)*1000
+      ! if (my_task == master_task) write(6, *)'3.1', (t1)*1000
 
-      if (my_task == master_task) write(6, *)'3.2', (t2)*1000
+      ! if (my_task == master_task) write(6, *)'3.2', (t2)*1000
    endif
 
 end function computeBasis
@@ -749,7 +741,7 @@ end function coeff_add
 
 ! ORIGIN
 
-function local_sum(X, bid)
+function local_sum(X, iblock)
 
    real (r8), dimension(:,:,:), intent(in) :: &
       X                    ! array to be summed
@@ -760,7 +752,7 @@ function local_sum(X, bid)
    integer (int_kind) :: &
       i,j,n,             &! local counters
       ib,ie,jb,je,       &! beg,end of physical domain
-      bid               ! block location
+      iblock               ! block location
 
    real (r8) ::          &
       local_sum           ! sum of all local blocks
@@ -769,11 +761,11 @@ function local_sum(X, bid)
 
    
    ! do n=1,dist%local_block_num
-      ! bid = n
-      call get_block_parameter(dist%local_block_ids(bid),ib=ib,ie=ie,jb=jb,je=je)
+      ! iblock = n
+      call get_block_parameter(dist%local_block_ids(iblock),ib=ib,ie=ie,jb=jb,je=je)
          do j=jb,je
          do i=ib,ie
-            local_sum = local_sum + X(i,j,bid)
+            local_sum = local_sum + X(i,j,iblock)
          end do
          end do
    ! end do !block loop
@@ -821,7 +813,7 @@ function simple_sum(X) result (s)
 
 end function simple_sum
 
- subroutine btrop_operator(AX,X,this_block,bid)
+ subroutine btrop_operator(AX,X,this_block,iblock)
 
 ! !DESCRIPTION:
 ! This routine applies the nine-point stencil operator for the
@@ -841,7 +833,7 @@ end function simple_sum
       this_block ! block info for this block
 
    integer (int_kind), intent(in) :: &
-      bid ! local block address for this block
+      iblock ! local block address for this block
 
 ! !OUTPUT PARAMETERS:
 
@@ -862,19 +854,19 @@ end function simple_sum
 
 !-----------------------------------------------------------------------
 
-   AX(:,:,bid) = c0
+   AX(:,:,iblock) = c0
 
    do j=this_block%jb,this_block%je
    do i=this_block%ib,this_block%ie
-      AX(i,j,bid) = A0 (i ,j ,bid)*X(i ,j ,bid) + &
-                    AN (i ,j ,bid)*X(i ,j+1,bid) + &
-                    AN (i ,j-1,bid)*X(i ,j-1,bid) + &
-                    AE (i ,j ,bid)*X(i+1,j ,bid) + &
-                    AE (i-1,j ,bid)*X(i-1,j ,bid) + &
-                    ANE(i ,j ,bid)*X(i+1,j+1,bid) + &
-                    ANE(i ,j-1,bid)*X(i+1,j-1,bid) + &
-                    ANE(i-1,j ,bid)*X(i-1,j+1,bid) + &
-                    ANE(i-1,j-1,bid)*X(i-1,j-1,bid)
+      AX(i,j,iblock) = A0 (i ,j ,iblock)*X(i ,j ,iblock) + &
+                    AN (i ,j ,iblock)*X(i ,j+1,iblock) + &
+                    AN (i ,j-1,iblock)*X(i ,j-1,iblock) + &
+                    AE (i ,j ,iblock)*X(i+1,j ,iblock) + &
+                    AE (i-1,j ,iblock)*X(i-1,j ,iblock) + &
+                    ANE(i ,j ,iblock)*X(i+1,j+1,iblock) + &
+                    ANE(i ,j-1,iblock)*X(i+1,j-1,iblock) + &
+                    ANE(i-1,j ,iblock)*X(i-1,j+1,iblock) + &
+                    ANE(i-1,j-1,iblock)*X(i-1,j-1,iblock)
    end do
    end do
 
