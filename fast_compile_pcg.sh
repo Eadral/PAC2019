@@ -9,7 +9,7 @@ cd ./build
 #rm -f *
 ln -sf ../source/* .
 
-OPTIONS="-O3 -xHost -fp-model source -assume byterecl -ftz  -free -g"
+OPTIONS="-O3 -xHost -ipo -parallel -par-affinity=granularity=fine,proclist=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],explicit -no-prec-div -funroll-all-loops -fp-model fast=2 -qopenmp -falign-loops -assume byterecl -ftz  -free -g"
 
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c netcdf_mod.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c kinds_mod.f90
@@ -27,7 +27,7 @@ OPTIONS="-O3 -xHost -fp-model source -assume byterecl -ftz  -free -g"
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io_netcdf.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io_binary.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c io.f90
-#mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c global_reductions.f90
+mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c global_reductions.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c grid.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c prognostic.f90
 #mpiifort -mcmodel=medium -qopenmp -I${NETCDFINC} -I. ${OPTIONS} -c time_management.f90

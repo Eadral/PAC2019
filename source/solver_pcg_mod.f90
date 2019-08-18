@@ -223,7 +223,7 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 3
+   integer (int_kind), parameter :: step = 2
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      r0, x0, p0, AX
@@ -286,13 +286,15 @@ contains
 
    integer (int_kind) :: kc
    
+   
+
    AX = simple_A(X)
 
-   r0 = B - AX
-   p0 = r0
+   ! r0 = B - AX
+   ! p0 = r0
    ! xi(:,:,:) = X
-   ri(:,:,:) = r0
-   pi(:,:,:) = p0
+   ri(:,:,:) = B - AX
+   pi(:,:,:) = ri(:,:,:)
 
    k = 0
 
@@ -321,35 +323,35 @@ contains
             do iblock=1,nblocks_tropic
                this_block = get_block(blocks_tropic(iblock),iblock)
       
-               ! PR(:,:,iblock, jj+1) = c0
-               ! PR(:,:,iblock, step+1+jj+1) = c0
+               PR(:,:,iblock, jj+1) = c0
+               PR(:,:,iblock, step+1+jj+1) = c0
 
-               ! do j=this_block%jb,this_block%je
-               ! do i=this_block%ib,this_block%ie
-               !    PR(i,j,iblock, jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock,jj) + &
-               !                  AN (i ,j ,iblock)*PR(i ,j+1,iblock,jj) + &
-               !                  AN (i ,j-1,iblock)*PR(i ,j-1,iblock,jj) + &
-               !                  AE (i ,j ,iblock)*PR(i+1,j ,iblock,jj) + &
-               !                  AE (i-1,j ,iblock)*PR(i-1,j ,iblock,jj) + &
-               !                  ANE(i ,j ,iblock)*PR(i+1,j+1,iblock,jj) + &
-               !                  ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock,jj) + &
-               !                  ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock,jj) + &
-               !                  ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock,jj)
+               do j=this_block%jb,this_block%je
+               do i=this_block%ib,this_block%ie
+                  PR(i,j,iblock, jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock,jj) + &
+                                AN (i ,j ,iblock)*PR(i ,j+1,iblock,jj) + &
+                                AN (i ,j-1,iblock)*PR(i ,j-1,iblock,jj) + &
+                                AE (i ,j ,iblock)*PR(i+1,j ,iblock,jj) + &
+                                AE (i-1,j ,iblock)*PR(i-1,j ,iblock,jj) + &
+                                ANE(i ,j ,iblock)*PR(i+1,j+1,iblock,jj) + &
+                                ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock,jj) + &
+                                ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock,jj) + &
+                                ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock,jj)
 
-               !    PR(i,j,iblock, step+1+jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock, step+1+jj) + &
-               !                  AN (i ,j ,iblock)*PR(i ,j+1,iblock, step+1+jj) + &
-               !                  AN (i ,j-1,iblock)*PR(i ,j-1,iblock, step+1+jj) + &
-               !                  AE (i ,j ,iblock)*PR(i+1,j ,iblock, step+1+jj) + &
-               !                  AE (i-1,j ,iblock)*PR(i-1,j ,iblock, step+1+jj) + &
-               !                  ANE(i ,j ,iblock)*PR(i+1,j+1,iblock, step+1+jj) + &
-               !                  ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock, step+1+jj) + &
-               !                  ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock, step+1+jj) + &
-               !                  ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock, step+1+jj)
-               ! end do
-               ! end do
+                  PR(i,j,iblock, step+1+jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock, step+1+jj) + &
+                                AN (i ,j ,iblock)*PR(i ,j+1,iblock, step+1+jj) + &
+                                AN (i ,j-1,iblock)*PR(i ,j-1,iblock, step+1+jj) + &
+                                AE (i ,j ,iblock)*PR(i+1,j ,iblock, step+1+jj) + &
+                                AE (i-1,j ,iblock)*PR(i-1,j ,iblock, step+1+jj) + &
+                                ANE(i ,j ,iblock)*PR(i+1,j+1,iblock, step+1+jj) + &
+                                ANE(i ,j-1,iblock)*PR(i+1,j-1,iblock, step+1+jj) + &
+                                ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock, step+1+jj) + &
+                                ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock, step+1+jj)
+               end do
+               end do
             
-            call btrop_operator(PR(:,:,:, jj+1), PR(:,:,:, jj), this_block,iblock)
-            call btrop_operator(PR(:,:,:, step+1+jj+1), PR(:,:,:, step+1+jj), this_block,iblock)
+            ! call btrop_operator(PR(:,:,:, jj+1), PR(:,:,:, jj), this_block,iblock)
+            ! call btrop_operator(PR(:,:,:, step+1+jj+1), PR(:,:,:, step+1+jj), this_block,iblock)
             enddo
             !$OMP END PARALLEL DO
             call update_ghost_cells(PR(:,:,:, jj+1), bndy_tropic, field_loc_center, field_type_scalar)
@@ -480,7 +482,7 @@ contains
 
       
        ! CHECK
-      if (.true.) then
+      if (mod(its, solv_ncheck) == 0) then
 
          rr = simple_sum( ri )
          rr = rr * rr / 10

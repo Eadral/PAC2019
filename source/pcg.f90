@@ -75,10 +75,10 @@
    call get_timer(pcg_timer,'pcg',1,distrb_clinic%nprocs)
    call timer_start(pcg_timer)
 
-   ! do n =1,20
+   do n =1,20
       X = X0
       call pcg(X,B)
-   ! enddo
+   enddo
 
    call timer_stop(pcg_timer)
 !-----------------------------------------------------------------------
