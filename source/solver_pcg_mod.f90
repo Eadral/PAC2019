@@ -223,7 +223,7 @@ contains
 
 ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
-   integer (int_kind), parameter :: step = 4
+   integer (int_kind), parameter :: step = 3
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
      r0, x0, p0, AX
@@ -344,15 +344,17 @@ contains
       
 
          do jj = 1, step-1
-            !$OMP PARALLEL DO PRIVATE(iblock,this_block)  
+            !$OMP PARALLEL DO PRIVATE(iblock,this_block)    
             do iblock=1,nblocks_tropic
                this_block = get_block(blocks_tropic(iblock),iblock)
       
                PR(:,:,iblock, jj+1) = c0
                PR(:,:,iblock, step+1+jj+1) = c0
-
+               
+               !$OMP PARALLEL DO
                do j=this_block%jb,this_block%je
                !DIR$ IVDEP UNROLL
+                  !$OMP PARALLEL DO
                do i=this_block%ib,this_block%ie
                   PR(i,j,iblock, jj+1) = A0 (i ,j ,iblock)*PR(i ,j ,iblock,jj) + &
                                 AN (i ,j ,iblock)*PR(i ,j+1,iblock,jj) + &
@@ -374,7 +376,9 @@ contains
                                 ANE(i-1,j ,iblock)*PR(i-1,j+1,iblock, step+1+jj) + &
                                 ANE(i-1,j-1,iblock)*PR(i-1,j-1,iblock, step+1+jj)
                end do
+               !$OMP END PARALLEL DO
                end do
+               !$OMP END PARALLEL DO
             
             ! call btrop_operator(PR(:,:,:, jj+1), PR(:,:,:, jj), this_block,iblock)
             ! call btrop_operator(PR(:,:,:, step+1+jj+1), PR(:,:,:, step+1+jj), this_block,iblock)
@@ -423,7 +427,7 @@ contains
 
       G = 0
 
-      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block) 
 
       do iblock=1,nblocks_tropic
          this_block = get_block(blocks_tropic(iblock),iblock)
