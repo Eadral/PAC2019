@@ -325,7 +325,7 @@
       write(stdout,delim_fmt)
    endif
 !   write(6,*)'xiaobin initialize_POP11,my_task+1',my_task+1
-   
+
 !-----------------------------------------------------------------------
 !EOC
 
