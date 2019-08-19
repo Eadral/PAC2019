@@ -907,7 +907,6 @@ end function simple_sum
 
  end subroutine btrop_operator
 
-include 'matpow.inc.f90'
 
 !***********************************************************************
 
