@@ -181,12 +181,12 @@ contains
    X ! on input, an initial guess for the solution
                       ! on output, solution of the linear system
 
-   call new_pcg(X,B)
+   call new_pcg(X, B)
+   call cacg(X,B)
 
  end subroutine pcg
 
  subroutine new_pcg(X,B)
-
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
       intent(in) :: &
@@ -225,89 +225,32 @@ contains
    type (block) :: &
       this_block ! block information for current block
 
-   !
-   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
-      ri, pi, zi, ri1, pi1, zi1, rz
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
-   real (r8) :: &
-      alpha, beta, gamma
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
 
-   integer (int_kind) :: &
-      its
+      call btrop_operator(S,X,this_block,iblock)
+      R(:,:,iblock) = B(:,:,iblock) - S(:,:,iblock)
+      S(:,:,iblock) = c0
+   end do ! block loop
 
-   ! ri = B - simple_A(X)
-   ! pi = ri
-   ! zi = pi
-
-   ! its = 0
-
-   ! iters: do its = 1, solv_max_iters
-
-   !    where (A0 /= c0)
-   !       zi1 = ri / A0
-   !    elsewhere
-   !       zi1 = c0
-   !    endwhere
-      
-   !    rz = ri * zi1
-
-   !    pi1 = zi1 + beta * zi1
-
-   !    alpha = simple_sum( pi * ri ) / simple_sum( pi * simple_A(pi) )
-
-   !    X = X + alpha * pi
-
-   !    ri1 = r - alpha * simple_A( pi )
-
-   !    zi1 = ri
-
-   !    beta = simple_sum( zi1 * (ri1 - ri) ) / simple_sum( zi * ri )
-      
-   !    pi1 = zi1 + beta * pi
-
-   !     ! CHECK
-   !    if (mod(its, 1) == 0) then
-
-   !       rr = simple_sum( ri1 )
-   !       rr = rr * rr 
-
-   !          ! ljm tuning
-   !       if (my_task == master_task) &
-   !          write(6,*)'  iter its= ',its,' rr= ',rr
-   !       if (rr < solv_convrg) then
-   !          ! ljm tuning
-   !          if (my_task == master_task) &
-   !             write(6,*)'pcg_iter_loop:iter its= ',its,' rr= ',rr
-   !          solv_sum_iters = its
-   !          exit iters
-   !       endif
-
-   !       endif
-   !    ! ENDCHECK
-
-   !    ! update
-
-   !    ri = ri1
-   !    zi = zi1
-   !    pi = pi1
-
-   ! enddo iters
-
-   ! return
+   !$OMP END PARALLEL DO
 
 
-
-      S = simple_A(X)
-      R = B - S
-      S = c0
-
+   call update_ghost_cells(R, bndy_tropic, field_loc_center, &
+                                           field_type_scalar)
    eta0 =c1
    solv_sum_iters = solv_max_iters
 
 
-   iter_loop: do m = 1, solv_max_iters
+   iter_loop: do m = 1, 10
 
 
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
 
             where (A0(:,:,iblock) /= c0)
                WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
@@ -315,31 +258,62 @@ contains
                WORK1(:,:,iblock) = c0
             endwhere
 
-         WORK0 = R * WORK1
+         WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
 
       !*** (r,(PC)r)
-      eta1 = simple_sum(WORK0)
+      eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
 
-      S = WORK1 + S * (eta1 / eta0)
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
-      Q = simple_A(S)
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
 
-      WORK0 = Q * S
-      
+         S(:,:,iblock) = WORK1(:,:,iblock) + S(:,:,iblock)*(eta1/eta0)
+
+
+         call btrop_operator(Q,S,this_block,iblock)
+         WORK0(:,:,iblock) = Q(:,:,iblock)*S(:,:,iblock)
+
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
+      call update_ghost_cells(Q, bndy_tropic, field_loc_center, &
+                                              field_type_scalar)
+
       eta0 = eta1
-      eta1 = eta0/simple_sum(WORK0)
+      eta1 = eta0/global_sum(WORK0, distrb_tropic, &
+                             field_loc_center, RCALCT_B)
 
-      X = X + eta1 * S
-      R = R - eta1 * Q
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
 
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         X(:,:,iblock) = X(:,:,iblock) + eta1*S(:,:,iblock)
+         R(:,:,iblock) = R(:,:,iblock) - eta1*Q(:,:,iblock)
+
+         if (mod(m,1) == 0) then
+
+            call btrop_operator(R,X,this_block,iblock)
+            R(:,:,iblock) = B(:,:,iblock) - R(:,:,iblock)
+            WORK0(:,:,iblock) = R(:,:,iblock)*R(:,:,iblock)
+         endif
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
 
       if (mod(m,1) == 0) then
 
          call update_ghost_cells(R, bndy_tropic, field_loc_center,&
                                                  field_type_scalar)
 
-         rr = simple_sum(B - R)
-         rr = rr * rr
+         rr = global_sum(WORK0, distrb_tropic, &
+                         field_loc_center, RCALCT_B) ! (r,r)
 
             ! ljm tuning
            if (my_task == master_task) &
@@ -844,8 +818,7 @@ contains
        ! CHECK
       if (mod(its, 1) == 0) then
 
-         rr = simple_sum( ri )
-         rr = rr * rr / 10
+         rr = simple_sum(ri * ri)
 
             ! ljm tuning
          if (my_task == master_task) &
