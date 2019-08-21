@@ -842,6 +842,256 @@ contains
 
    return 
 end subroutine cacg
+
+subroutine pr_cg(X,B)
+
+   ! !DESCRIPTION:
+   ! This routine uses a preconditioned conjugate-gradient solver to
+   ! solve the equation $Ax=b$. Both the operator $A$ and preconditioner
+   ! are nine-point stencils. If no preconditioner has been supplied,
+   ! a diagonal preconditioner is applied. Convergence is checked
+   ! every {\em ncheck} steps.
+   !
+   ! !REVISION HISTORY:
+   ! same as module
+
+   ! !INPUT PARAMETERS:
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      B ! right hand side of linear system
+
+   ! !INPUT/OUTPUT PARAMETERS:
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(inout) :: &
+      X ! on input, an initial guess for the solution
+                         ! on output, solution of the linear system
+
+   !EOP
+   !BOC
+   !-----------------------------------------------------------------------
+   !
+   ! local variables
+   !
+   !-----------------------------------------------------------------------
+
+   integer (int_kind) :: &
+      m, &! local iteration counter
+      iblock ! local block counter
+
+   real (r8) :: &
+      eta0,eta1,rr ! scalar inner product results
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      R, &! residual (b-Ax)
+      S, &! conjugate direction vector
+      Q,WORK0,WORK1 ! various cg intermediate results
+
+   character (char_len) :: &
+      noconvrg ! error message for no convergence
+
+   type (block) :: &
+      this_block ! block information for current block
+
+   ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      r_k, p_k, s_k, x_k1, r_k1, p_k1, s_k1, w_k, u_k, w_k1, u_k1, rt_k, st_k, wt_k, ut_k, rt_k1, wt_k1, st_k1, ut_k1, &
+      temp1, temp2, temp3
+
+   real (r8) :: &
+      nu_k, mu_k, a_k, a_k1, a_k2, b_k, b_k1, mu_k1, nu_k1, del_k, gam_k, del_k1, gam_k1, &
+      mu_k_t, gam_k_t, nu_k_t
+
+
+   integer (int_kind) :: i, j, k, ib, ie, jb, je
+   
+   ! initialize
+   r_k = B - simple_A(X)
+   ! rt_k = pcer(r_k)
+   nu_k = simple_sum(r_k * r_k)
+   p_k = r_k
+   s_k = simple_A(p_k)
+   ! st_k = pcer(s_k)
+   mu_k = simple_sum(p_k * s_k)
+   a_k = nu_k / mu_k
+   a_k1 = 0
+   a_k2 = 0
+   b_k = 0
+   b_k1 = 0
+   ! del_k = simple_sum(r_k * s_k)
+   gam_k = simple_sum(s_k*s_k)
+   !
+   ! (not)optimized initialize
+      !    ! r_k = B - simple_A(X)
+      !    ! rt_k = pcer(r_k)
+      !    ! nu_k = simple_sum(r_k * r_k)
+      !    ! s_k = simple_A(p_k)
+      !    ! st_k = pcer(s_k)
+      !    ! mu_k = simple_sum(p_k * s_k)
+         
+      !    ! del_k = simple_sum(r_k * s_k)
+      !    ! gam_k = simple_sum(s_k*s_k)
+
+      !    mu_k_t = 0
+      !    gam_k_t = 0
+      !    nu_k_t = 0
+
+      !    !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+      !    do iblock=1,nblocks_tropic
+      !       this_block = get_block(blocks_tropic(iblock),iblock)
+               
+      !       call btrop_operator(AX, X,this_block,iblock)
+      !    end do ! block loop
+      !    !$OMP END PARALLEL DO
+      !    call update_ghost_cells(AX, bndy_tropic, field_loc_center, field_type_scalar)
+
+      !    !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+      !    do iblock=1,nblocks_tropic
+      !       this_block = get_block(blocks_tropic(iblock),iblock)
+               
+      !       r_k(:,:, iblock) = B(:,:, iblock) - AX(:,:, iblock)
+      !       p_k(:,:, iblock) = r_k(:,:, iblock)
+            
+      !       call btrop_operator(s_k, p_k,this_block,iblock)
+      !    end do ! block loop
+      !    !$OMP END PARALLEL DO
+
+         
+      !       call update_ghost_cells(s_k, bndy_tropic, field_loc_center, field_type_scalar)
+
+      !       !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+      !       do iblock=1,nblocks_tropic
+      !       this_block = get_block(blocks_tropic(iblock),iblock)
+      !          call get_block_parameter(distrb_tropic%local_block_ids(iblock),ib=ib,ie=ie,jb=jb,je=je)
+      !                do j=jb,je
+      !                do i=ib,ie
+      !                   mu_k_t = mu_k_t + p_k(i,j,iblock) * s_k(i,j,iblock)
+      !                   ! del_k = simple_sum(r_k * s_k)
+      !                   gam_k_t = gam_k_t + s_k(i,j,iblock) * s_k(i,j,iblock)
+      !                   nu_k_t = nu_k_t + r_k(i,j,iblock) * r_k(i,j,iblock) 
+      !                end do
+      !                end do
+
+            
+
+      !       end do ! block loop
+         
+      !    !$OMP END PARALLEL DO
+
+      !    mu_k = global_sum(mu_k_t, distrb_tropic) 
+      !    ! del_k = simple_sum(r_k * s_k)
+      !    gam_k = global_sum(gam_k_t, distrb_tropic) 
+      !    nu_k = global_sum(nu_k_t, distrb_tropic) 
+
+      !    a_k = nu_k / mu_k
+      !    a_k1 = 0
+      !    a_k2 = 0
+      !    b_k = 0
+      !    b_k1 = 0
+   ! !
+
+   iter_loop_k: do k = 1, solv_max_iters
+      
+      a_k2 = a_k1
+      a_k1 = a_k
+      b_k1 = b_k
+      nu_k1 = nu_k
+      ! del_k1 = del_k
+      gam_k1 = gam_k
+
+      mu_k_t = 0
+      gam_k_t = 0
+      nu_k_t = 0
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+         do iblock=1,nblocks_tropic
+            this_block = get_block(blocks_tropic(iblock),iblock)
+            
+         X(:,:,iblock) = X(:,:,iblock) + a_k1 * p_k(:,:,iblock)
+         r_k(:,:,iblock) = r_k(:,:,iblock) - a_k1 * s_k(:,:,iblock)
+         ! rt_k = rt_k1 - a_k1 * st_k1
+         nu_k = - nu_k1 + (a_k1*a_k1) * gam_k1
+         ! nu_k = nu_k1 - 2 * a_k1 * del_k1 + (a_k1 * a_k1) * gam_k1
+         b_k = nu_k / nu_k1
+         p_k(:,:,iblock) = r_k(:,:,iblock) + b_k * p_k(:,:,iblock)
+         
+         call btrop_operator(s_k, p_k,this_block,iblock)
+      
+            call get_block_parameter(distrb_tropic%local_block_ids(iblock),ib=ib,ie=ie,jb=jb,je=je)
+                  do j=jb,je
+                  do i=ib,ie
+                     mu_k_t = mu_k_t + p_k(i,j,iblock) * s_k(i,j,iblock)
+                     ! del_k = simple_sum(r_k * s_k)
+                     gam_k_t = gam_k_t + s_k(i,j,iblock) * s_k(i,j,iblock)
+                     nu_k_t = nu_k_t + r_k(i,j,iblock) * r_k(i,j,iblock) 
+                  end do
+                  end do
+
+         
+
+         end do ! block loop
+         
+      !$OMP END PARALLEL DO
+
+         call update_ghost_cells(s_k, bndy_tropic, field_loc_center, field_type_scalar)
+         
+      mu_k = global_sum(mu_k_t, distrb_tropic) 
+      ! del_k = simple_sum(r_k * s_k)
+      gam_k = global_sum(gam_k_t, distrb_tropic) 
+      nu_k = global_sum(nu_k_t, distrb_tropic) 
+
+      a_k = nu_k / mu_k
+
+
+      ! CHECK
+         if (.true.) then
+
+            rr = abs(nu_k)
+
+               ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'  iter k= ',k,' rr= ',rr
+            if (rr < solv_convrg) then
+               ! ljm tuning
+               if (my_task == master_task) &
+                  write(6,*)'pcg_iter_loop:iter k= ',k,' rr= ',rr
+               solv_sum_iters = k
+               exit iter_loop_k
+            endif
+
+         endif
+      ! ENDCHECK
+      
+
+      ! if (my_task == master_task) &
+      !    write(6,*) &
+      !       'X= ',sum(X), &
+      !       'Rk= ',sum(Rk), &
+      !       'RHk= ',sum(RHk), &
+      !       'Pk= ',sum(Pk), &
+      !       'Sk= ',sum(Sk), &
+      !       'Vk= ',Vk, &
+      !       'Alpha= ',Alphak
+
+   enddo iter_loop_k
+
+
+   
+   ! if (solv_sum_iters == solv_max_iters) then
+   !    if (solv_convrg /= c0) then
+   !       write(noconvrg,'(a45,i11)') &
+   !         'Barotropic solver not converged at time step ', nsteps_total
+   !       call exit_POP(sigAbort,noconvrg)
+   !    endif
+   ! endif
+
+   return 
+ end subroutine pcg
+
 ! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
 
 subroutine basisparams(s, alp, bet, gam, T)
