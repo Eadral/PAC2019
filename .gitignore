@@ -5,3 +5,5 @@ inputdata/
 Makefile
 *.prj
 modules/
+*.zip
+*.tar
