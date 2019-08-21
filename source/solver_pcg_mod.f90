@@ -171,37 +171,41 @@ contains
 ! !INTERFACE:
 
  subroutine pcg(X,B)
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+   intent(in) :: &
+   B ! right hand side of linear system
 
-! !DESCRIPTION:
-! This routine uses a preconditioned conjugate-gradient solver to
-! solve the equation $Ax=b$. Both the operator $A$ and preconditioner
-! are nine-point stencils. If no preconditioner has been supplied,
-! a diagonal preconditioner is applied. Convergence is checked
-! every {\em ncheck} steps.
-!
-! !REVISION HISTORY:
-! same as module
 
-! !INPUT PARAMETERS:
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+   intent(inout) :: &
+   X ! on input, an initial guess for the solution
+                      ! on output, solution of the linear system
+
+   call new_pcg(X,B)
+
+ end subroutine pcg
+
+ subroutine new_pcg(X,B)
+
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
       intent(in) :: &
       B ! right hand side of linear system
 
-! !INPUT/OUTPUT PARAMETERS:
+   ! !INPUT/OUTPUT PARAMETERS:
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
       intent(inout) :: &
       X ! on input, an initial guess for the solution
                          ! on output, solution of the linear system
 
-!EOP
-!BOC
-!-----------------------------------------------------------------------
-!
-! local variables
-!
-!-----------------------------------------------------------------------
+   !EOP
+   !BOC
+   !-----------------------------------------------------------------------
+   !
+   ! local variables
+   !
+   !-----------------------------------------------------------------------
 
    integer (int_kind) :: &
       m, &! local iteration counter
@@ -221,7 +225,330 @@ contains
    type (block) :: &
       this_block ! block information for current block
 
-! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
+   !
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      ri, pi, zi, ri1, pi1, zi1, rz
+
+   real (r8) :: &
+      alpha, beta, gamma
+
+   integer (int_kind) :: &
+      its
+
+   ! ri = B - simple_A(X)
+   ! pi = ri
+   ! zi = pi
+
+   ! its = 0
+
+   ! iters: do its = 1, solv_max_iters
+
+   !    where (A0 /= c0)
+   !       zi1 = ri / A0
+   !    elsewhere
+   !       zi1 = c0
+   !    endwhere
+      
+   !    rz = ri * zi1
+
+   !    pi1 = zi1 + beta * zi1
+
+   !    alpha = simple_sum( pi * ri ) / simple_sum( pi * simple_A(pi) )
+
+   !    X = X + alpha * pi
+
+   !    ri1 = r - alpha * simple_A( pi )
+
+   !    zi1 = ri
+
+   !    beta = simple_sum( zi1 * (ri1 - ri) ) / simple_sum( zi * ri )
+      
+   !    pi1 = zi1 + beta * pi
+
+   !     ! CHECK
+   !    if (mod(its, 1) == 0) then
+
+   !       rr = simple_sum( ri1 )
+   !       rr = rr * rr 
+
+   !          ! ljm tuning
+   !       if (my_task == master_task) &
+   !          write(6,*)'  iter its= ',its,' rr= ',rr
+   !       if (rr < solv_convrg) then
+   !          ! ljm tuning
+   !          if (my_task == master_task) &
+   !             write(6,*)'pcg_iter_loop:iter its= ',its,' rr= ',rr
+   !          solv_sum_iters = its
+   !          exit iters
+   !       endif
+
+   !       endif
+   !    ! ENDCHECK
+
+   !    ! update
+
+   !    ri = ri1
+   !    zi = zi1
+   !    pi = pi1
+
+   ! enddo iters
+
+   ! return
+
+
+
+      S = simple_A(X)
+      R = B - S
+      S = c0
+
+   eta0 =c1
+   solv_sum_iters = solv_max_iters
+
+
+   iter_loop: do m = 1, solv_max_iters
+
+
+
+            where (A0(:,:,iblock) /= c0)
+               WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
+            elsewhere
+               WORK1(:,:,iblock) = c0
+            endwhere
+
+         WORK0 = R * WORK1
+
+      !*** (r,(PC)r)
+      eta1 = simple_sum(WORK0)
+
+      S = WORK1 + S * (eta1 / eta0)
+
+      Q = simple_A(S)
+
+      WORK0 = Q * S
+      
+      eta0 = eta1
+      eta1 = eta0/simple_sum(WORK0)
+
+      X = X + eta1 * S
+      R = R - eta1 * Q
+
+
+      if (mod(m,1) == 0) then
+
+         call update_ghost_cells(R, bndy_tropic, field_loc_center,&
+                                                 field_type_scalar)
+
+         rr = simple_sum(B - R)
+         rr = rr * rr
+
+            ! ljm tuning
+           if (my_task == master_task) &
+              write(6,*)'  iter#= ',m,' rr= ',rr
+         if (rr < solv_convrg) then
+            ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
+            solv_sum_iters = m
+            exit iter_loop
+         endif
+
+      endif
+
+   enddo iter_loop
+
+   rms_residual = sqrt(rr*resid_norm)
+
+ end subroutine new_pcg
+
+ subroutine ori_pcg(X,B)
+
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      B ! right hand side of linear system
+
+   ! !INPUT/OUTPUT PARAMETERS:
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(inout) :: &
+      X ! on input, an initial guess for the solution
+                         ! on output, solution of the linear system
+
+   !EOP
+   !BOC
+   !-----------------------------------------------------------------------
+   !
+   ! local variables
+   !
+   !-----------------------------------------------------------------------
+
+   integer (int_kind) :: &
+      m, &! local iteration counter
+      iblock ! local block counter
+
+   real (r8) :: &
+      eta0,eta1,rr ! scalar inner product results
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      R, &! residual (b-Ax)
+      S, &! conjugate direction vector
+      Q,WORK0,WORK1 ! various cg intermediate results
+
+   character (char_len) :: &
+      noconvrg ! error message for no convergence
+
+   type (block) :: &
+      this_block ! block information for current block
+
+   !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+   do iblock=1,nblocks_tropic
+      this_block = get_block(blocks_tropic(iblock),iblock)
+
+      call btrop_operator(S,X,this_block,iblock)
+      R(:,:,iblock) = B(:,:,iblock) - S(:,:,iblock)
+      S(:,:,iblock) = c0
+   end do ! block loop
+
+   !$OMP END PARALLEL DO
+
+
+   call update_ghost_cells(R, bndy_tropic, field_loc_center, &
+                                           field_type_scalar)
+   eta0 =c1
+   solv_sum_iters = solv_max_iters
+
+
+   iter_loop: do m = 1, solv_max_iters
+
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+            where (A0(:,:,iblock) /= c0)
+               WORK1(:,:,iblock) = R(:,:,iblock)/A0(:,:,iblock)
+            elsewhere
+               WORK1(:,:,iblock) = c0
+            endwhere
+
+         WORK0(:,:,iblock) = R(:,:,iblock)*WORK1(:,:,iblock)
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
+
+      !*** (r,(PC)r)
+      eta1 = global_sum(WORK0, distrb_tropic, field_loc_center, RCALCT_B)
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         S(:,:,iblock) = WORK1(:,:,iblock) + S(:,:,iblock)*(eta1/eta0)
+
+
+         call btrop_operator(Q,S,this_block,iblock)
+         WORK0(:,:,iblock) = Q(:,:,iblock)*S(:,:,iblock)
+
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
+      call update_ghost_cells(Q, bndy_tropic, field_loc_center, &
+                                              field_type_scalar)
+
+      eta0 = eta1
+      eta1 = eta0/global_sum(WORK0, distrb_tropic, &
+                             field_loc_center, RCALCT_B)
+
+      !$OMP PARALLEL DO PRIVATE(iblock,this_block)
+
+      do iblock=1,nblocks_tropic
+         this_block = get_block(blocks_tropic(iblock),iblock)
+
+         X(:,:,iblock) = X(:,:,iblock) + eta1*S(:,:,iblock)
+         R(:,:,iblock) = R(:,:,iblock) - eta1*Q(:,:,iblock)
+
+         if (mod(m,1) == 0) then
+
+            call btrop_operator(R,X,this_block,iblock)
+            R(:,:,iblock) = B(:,:,iblock) - R(:,:,iblock)
+            WORK0(:,:,iblock) = R(:,:,iblock)*R(:,:,iblock)
+         endif
+      end do ! block loop
+
+      !$OMP END PARALLEL DO
+
+      if (mod(m,1) == 0) then
+
+         call update_ghost_cells(R, bndy_tropic, field_loc_center,&
+                                                 field_type_scalar)
+
+         rr = global_sum(WORK0, distrb_tropic, &
+                         field_loc_center, RCALCT_B) ! (r,r)
+
+            ! ljm tuning
+           if (my_task == master_task) &
+              write(6,*)'  iter#= ',m,' rr= ',rr
+         if (rr < solv_convrg) then
+            ! ljm tuning
+            if (my_task == master_task) &
+               write(6,*)'pcg_iter_loop:iter#=',m,' rr= ',rr
+            solv_sum_iters = m
+            exit iter_loop
+         endif
+
+      endif
+
+   enddo iter_loop
+
+   rms_residual = sqrt(rr*resid_norm)
+
+ end subroutine ori_pcg
+
+ subroutine cacg(X,B)
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(in) :: &
+      B ! right hand side of linear system
+
+   ! !INPUT/OUTPUT PARAMETERS:
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic), &
+      intent(inout) :: &
+      X ! on input, an initial guess for the solution
+                         ! on output, solution of the linear system
+
+   !EOP
+   !BOC
+   !-----------------------------------------------------------------------
+   !
+   ! local variables
+   !
+   !-----------------------------------------------------------------------
+
+   integer (int_kind) :: &
+      m, &! local iteration counter
+      iblock ! local block counter
+
+   real (r8) :: &
+      eta0,eta1,rr ! scalar inner product results
+
+   real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
+      R, &! residual (b-Ax)
+      S, &! conjugate direction vector
+      Q,WORK0,WORK1 ! various cg intermediate results
+
+   character (char_len) :: &
+      noconvrg ! error message for no convergence
+
+   type (block) :: &
+      this_block ! block information for current block
+
+   ! ------------------------------------------------ SIMPLE_VERSION ---------------------------------------------------------
 
    integer (int_kind), parameter :: step = 3
 
@@ -279,7 +606,7 @@ contains
       D
 
    real (r8) :: &
-      temp1, ts, te
+      temp1, ts, te, last_rr
 
    real (r8), dimension(nx_block,ny_block,max_blocks_tropic) :: &
       P_P, P_R, R_R
@@ -313,6 +640,9 @@ contains
    ! xi(:,:,:) = X
    ! ri(:,:,:) = B - AX
    ! pi(:,:,:) = ri(:,:,:)
+
+   last_rr = simple_sum(ri)
+   last_rr = last_rr * last_rr
 
    k = 0
 
@@ -512,7 +842,7 @@ contains
 
       
        ! CHECK
-      if (mod(its, solv_ncheck) == 0) then
+      if (mod(its, 1) == 0) then
 
          rr = simple_sum( ri )
          rr = rr * rr / 10
@@ -537,8 +867,8 @@ contains
    enddo iters
 
 
-return 
-end subroutine pcg
+   return 
+end subroutine cacg
 ! ------------------------------------------------ SIMPLE_VERSION END---------------------------------------------------------
 
 subroutine basisparams(s, alp, bet, gam, T)
