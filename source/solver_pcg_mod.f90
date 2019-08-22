@@ -629,7 +629,7 @@ contains
 
    iters: do while (its < solv_max_iters)
 
-      ! call cpu_time(ts)
+      call cpu_time(ts)
 
 
       ! PR(:,:,:, 1:step+1) = computeBasis(pi(:,:,:), step, alp, bet, gam)
@@ -724,9 +724,9 @@ contains
       !       G(gi, gj) = simple_sum( PR(:,:,:, gi) * PR(:,:,:, gj) )
       !    enddo
       ! enddo
-      ! call cpu_time(te)
-      ! if (my_task == master_task) write(6, *)'3', (te-ts)*1000
-      ! call cpu_time(ts)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'3', (te-ts)*1000
+      call cpu_time(ts)
 
 
 
@@ -750,13 +750,13 @@ contains
 
       end do ! block loop
 
-      ! call cpu_time(te)
-      ! if (my_task == master_task) write(6, *)'4', (te-ts)*1000
-      ! call cpu_time(ts)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'4', (te-ts)*1000
+      call cpu_time(ts)
       G = global_sum(G, distrb_tropic)
-      ! call cpu_time(te)
-      ! if (my_task == master_task) write(6, *)'5', (te-ts)*1000
-      ! call cpu_time(ts)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'5', (te-ts)*1000
+      call cpu_time(ts)
 
       ! stop
 
@@ -783,9 +783,9 @@ contains
 
       enddo
 
-      ! call cpu_time(te)
-      ! if (my_task == master_task) write(6, *)'6', (te-ts)*1000
-      ! call cpu_time(ts)
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'6', (te-ts)*1000
+      call cpu_time(ts)
 
       !$OMP PARALLEL DO PRIVATE(iblock,this_block,P_R)
 
@@ -835,8 +835,8 @@ contains
       endif
    ! ENDCHECK
 
-      ! call cpu_time(te)
-      ! if (my_task == master_task) write(6, *)'7', (te-ts)*1000
+      call cpu_time(te)
+      if (my_task == master_task) write(6, *)'7', (te-ts)*1000
 
    enddo iters
 
