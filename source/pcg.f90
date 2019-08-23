@@ -32,7 +32,7 @@
    lprecond = .false.
    solv_max_iters = 1000
    solv_ncheck    = 10
-   solv_convrg    = 3121.08494389626
+   solv_convrg    = 31.2108494389626
 
    write(outname,'(i9)')my_task
    if (my_task<10) outname = '00'//trim(adjustl(outname//'.nc'))
